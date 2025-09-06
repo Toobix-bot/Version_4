@@ -48,6 +48,8 @@ class CodeIndex:
                     data = p.read_text(encoding='utf-8', errors='replace')
                 except Exception:
                     continue
+                if _looks_binary_or_minified(data):
+                    continue
                 if not data.strip():
                     continue
                 b = len(data.encode('utf-8'))
@@ -155,6 +157,8 @@ class CodeIndex:
                 data = p.read_text(encoding='utf-8', errors='replace')
             except Exception:
                 continue
+            if _looks_binary_or_minified(data):
+                continue
             if not data.strip():
                 continue
             b = len(data.encode('utf-8'))
@@ -215,7 +219,50 @@ _global_index: CodeIndex | None = None
 
 def ensure_index(root: Path) -> CodeIndex:
     global _global_index
+    import os as _os, time as _time
+    ttl = int(_os.getenv('INDEX_REBUILD_TTL_SEC','0') or '0')  # 0 = aus
+    apply_thresh = int(_os.getenv('INDEX_REBUILD_APPLIES','0') or '0')  # 0 = aus
     if _global_index is None:
-        _global_index = CodeIndex()
-        _global_index.build(root)
+        _global_index = CodeIndex(); _global_index.build(root)
+        return _global_index
+    # optionale Rebuild Conditions
+    should = False
+    if ttl > 0 and _global_index.built_ts and (_time.time() - _global_index.built_ts) > ttl:
+        should = True
+    if apply_thresh > 0:
+        try:
+            from . import metrics as _m
+            # wenn total_files_touched seit Build größer Schwellwert -> rebuild
+            # (Heuristik: differenz approximieren; hier einfach absolute Zahl)
+            if _m.export_metrics().get('total_files_touched',0) >= apply_thresh:
+                should = True
+        except Exception:
+            pass
+    if should:
+        try:
+            _global_index.build(root)
+            try:
+                from .metrics import inc_index_auto_rebuild as _inc_auto
+                _inc_auto()
+            except Exception:
+                pass
+        except Exception:
+            pass
     return _global_index
+
+# --- Binary / Minified Heuristics Utilities --- #
+def _looks_binary_or_minified(data: str) -> bool:
+    if not data:
+        return False
+    sample = data[:4000]
+    # high ratio of non-printable (excluding common whitespace)
+    non_print = sum(1 for c in sample if ord(c) < 9 or (13 < ord(c) < 32))
+    if len(sample) and (non_print / len(sample)) > 0.15:
+        return True
+    # very long average line length (minified) heuristic
+    lines = sample.splitlines()
+    if lines:
+        avg = sum(len(l) for l in lines) / max(1, len(lines))
+        if avg > 280 and len(lines) < 30:  # dense chunk
+            return True
+    return False

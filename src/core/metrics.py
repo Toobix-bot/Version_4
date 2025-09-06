@@ -23,6 +23,11 @@ class _MetricState:
     last_index_build_ts: float | None = None
     index_file_count: int = 0
     index_total_bytes: int = 0
+    index_search_queries: int = 0
+    index_semantic_queries: int = 0
+    index_search_hits: int = 0
+    index_semantic_hits: int = 0
+    index_auto_rebuilds: int = 0
 
     def snapshot(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -62,6 +67,21 @@ def record_index_build(file_count: int, total_bytes: int) -> None:
         _state.index_file_count = file_count
         _state.index_total_bytes = total_bytes
         _state.last_index_build_ts = time.time()
+
+def inc_index_search(semantic: bool, hits: int) -> None:
+    if hits < 0:
+        hits = 0
+    with _lock:
+        if semantic:
+            _state.index_semantic_queries += 1
+            _state.index_semantic_hits += hits
+        else:
+            _state.index_search_queries += 1
+            _state.index_search_hits += hits
+
+def inc_index_auto_rebuild() -> None:
+    with _lock:
+        _state.index_auto_rebuilds += 1
 
 
 def export_metrics() -> Dict[str, Any]:

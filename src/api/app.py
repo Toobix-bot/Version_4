@@ -839,6 +839,12 @@ class MetricsResp(BaseModel):
     last_index_build_ts: float | None = None
     index_file_count: int = 0
     index_total_bytes: int = 0
+    # Added search/semantic counters & auto rebuild metrics
+    index_search_queries: int = 0
+    index_semantic_queries: int = 0
+    index_search_hits: int = 0
+    index_semantic_hits: int = 0
+    index_auto_rebuilds: int = 0
 
 @app.get('/metrics', response_model=MetricsResp)
 async def metrics_endpoint():
@@ -881,6 +887,11 @@ async def index_search(q: str):
     idx = code_index.ensure_index(repo_root)
     ranked = idx.search_tokens(q)
     took = (_t.time()-start)*1000
+    try:
+        from ..core.metrics import inc_index_search as _inc_s
+        _inc_s(False, len(ranked))
+    except Exception:
+        pass
     return IndexSearchResp(query=q, matches=[IndexMatch(file=f, score=s) for f,s in ranked], took_ms=took)
 
 class SemanticMatch(BaseModel):
@@ -901,6 +912,12 @@ async def index_semantic(q: str, limit: int = 10):
     enabled = _os.getenv('ENABLE_EMBED_INDEX') == '1'
     ranked = idx.semantic_search(q, limit=limit) if enabled else []
     took = (_t.time()-start)*1000
+    if enabled:
+        try:
+            from ..core.metrics import inc_index_search as _inc_s
+            _inc_s(True, len(ranked))
+        except Exception:
+            pass
     return SemanticSearchResp(query=q, matches=[SemanticMatch(file=f, score=float(s)) for f,s in ranked], took_ms=took, enabled=enabled)
 
 class IndexSnippetResp(BaseModel):
@@ -1260,14 +1277,59 @@ class ApplyResp(BaseModel):
     id: str | None = None
     file: str | None = None
     error: str | None = None
+    mode: str | None = None
+    artifact: str | None = None  # path to patch when mode=pr
 
 @app.post('/proposals/apply', response_model=ApplyResp, dependencies=[Depends(api_key_guard)])
 async def proposal_apply(req: ApplyReq):
+    import os as _os, subprocess as _sp, hashlib as _hh, datetime as _dt
+    mode = _os.getenv('PR_APPLY_MODE','direct').lower()  # direct | pr
+    if mode not in ('direct','pr'):
+        mode = 'direct'
+    if mode == 'direct':
+        try:
+            file_or_msg = orch.apply_after_approval(req.id, dry_run=False)
+            return ApplyResp(applied=True, id=req.id, file=file_or_msg, mode=mode)
+        except Exception as e:  # pragma: no cover
+            return ApplyResp(applied=False, id=req.id, error=str(e)[:300], mode=mode)
+    # --- PR Mode: erzeugt Patch Artefakt + optional Branch, wendet nicht direkt an --- #
     try:
-        file_or_msg = orch.apply_after_approval(req.id, dry_run=False)
-        return ApplyResp(applied=True, id=req.id, file=file_or_msg)
-    except Exception as e:  # pragma: no cover
-        return ApplyResp(applied=False, id=req.id, error=str(e)[:300])
+        # Erst diff holen (preview) – gilt als finaler Patch in diesem Modus
+        diff = orch.preview(req.id)
+    except Exception as e:
+        return ApplyResp(applied=False, id=req.id, error=f"preview fehlgeschlagen: {e}"[:300], mode=mode)
+    # Patch Artefakt schreiben
+    patches_dir = repo_root / 'patches'
+    patches_dir.mkdir(exist_ok=True)
+    stamp = _dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d_%H%M%S')
+    sha = _hh.sha256(diff.encode('utf-8', errors='ignore')).hexdigest()[:10]
+    patch_name = f"proposal_{req.id}_{stamp}_{sha}.patch"
+    patch_path = patches_dir / patch_name
+    try:
+        patch_path.write_text(diff, encoding='utf-8')
+    except Exception as e:
+        return ApplyResp(applied=False, id=req.id, error=f"patch write error: {e}"[:300], mode=mode)
+    # Optional git Branch anlegen und Patch anwenden ohne working tree zu verändern? Sicherer: branch + apply --cached not used; Benutzer kann manuell PR erstellen.
+    create_branch = _os.getenv('PR_CREATE_BRANCH','1') == '1'
+    branch_name = f"pr/{req.id}-{sha}"
+    if create_branch:
+        try:
+            _sp.run(['git','rev-parse','--is-inside-work-tree'], cwd=repo_root, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, check=True)
+            # checkout neuen Branch von HEAD
+            _sp.run(['git','checkout','-b', branch_name], cwd=repo_root, check=True, stdout=_sp.PIPE, stderr=_sp.PIPE)
+            # apply patch
+            proc = _sp.run(['git','apply', str(patch_path)], cwd=repo_root, stdout=_sp.PIPE, stderr=_sp.PIPE)
+            if proc.returncode != 0:
+                # branch zurücksetzen falls apply fehlschlägt
+                _sp.run(['git','checkout','-'], cwd=repo_root, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+                return ApplyResp(applied=False, id=req.id, error='git apply failed: '+proc.stderr.decode(errors='ignore')[:200], mode=mode, artifact=str(patch_path))
+            # commit
+            _sp.run(['git','add','.'], cwd=repo_root, check=True, stdout=_sp.PIPE, stderr=_sp.PIPE)
+            _sp.run(['git','commit','-m', f'apply proposal {req.id} (patch {sha})'], cwd=repo_root, check=True, stdout=_sp.PIPE, stderr=_sp.PIPE)
+        except Exception as e:
+            return ApplyResp(applied=False, id=req.id, error=('git flow error: '+str(e))[:280], mode=mode, artifact=str(patch_path))
+    # Keine direkte Anwendung im Dateisystem durch orchestrator (dry-run) => applied=False semantisch? Wir signalisieren success via applied True aber ohne file.
+    return ApplyResp(applied=True, id=req.id, file=None, mode=mode, artifact=str(patch_path))
 
 class UndoResp(BaseModel):
     undone: bool

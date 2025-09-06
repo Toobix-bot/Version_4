@@ -167,6 +167,8 @@ GET  /index/snippet?file=path/to/file.py   # Liefert Auszug (ersten ~400 Zeilen 
 ENABLE_EMBED_INDEX=1    # Aktiviert semantische Suche (Default: aus)
 INDEX_EXCLUDE=docs/old,legacy/tmp.txt  # Komma-Liste relativer Pfade/Präfixe/Endungen zum Ausschluss
 INDEX_DEBUG=1           # Konsolen-Log für Build Zeit & Größe
+INDEX_REBUILD_TTL_SEC=600   # (Optional) Automatischer Rebuild nach X Sekunden
+INDEX_REBUILD_APPLIES=25    # (Optional) Rebuild wenn >= so viele Dateien seit Start geändert
 ```
 
 ### UI
@@ -194,6 +196,29 @@ index_total_bytes
 * Binär-/Minified-Erkennung (Heuristik)
 * Erweiterte Ranking-Signale (Dateigröße, Tiefe)
 * Snippet-Zentrierung um Query-Treffer
+
+### PR Apply Modus
+Aktivierbar via:
+```
+PR_APPLY_MODE=pr
+PR_CREATE_BRANCH=1   # legt Branch pr/<id>-<sha> an und commitet Patch
+```
+Antwort `/proposals/apply` enthält Felder:
+```
+mode: direct|pr
+artifact: Pfad zum erzeugten Patch (.patch)
+```
+Im PR-Modus wird kein direkter Schreibzugriff via Orchestrator ausgeführt – stattdessen Patch + (optional) Branch, ideal für CI / Review.
+
+### Suchmetriken
+`/metrics` erweitert um:
+```
+index_search_queries
+index_semantic_queries
+index_search_hits
+index_semantic_hits
+index_auto_rebuilds
+```
 
 ---
 

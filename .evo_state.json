@@ -3,9 +3,10 @@
     "Improve onboarding documentation."
   ],
   "accepted_patches": [
+    "pMF",
     "pMF"
   ],
-  "cycle": 60,
+  "cycle": 62,
   "notes": {},
   "backups": {
     "pMF": [

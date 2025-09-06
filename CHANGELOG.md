@@ -6,3 +6,4 @@
 - Applied p_roadmap -> ROADMAP.md
 - Applied p_testing -> TESTING.md
 - Applied pMF -> DUMMY1.md, DUMMY2.md
+- Applied pMF -> DUMMY1.md, DUMMY2.md
