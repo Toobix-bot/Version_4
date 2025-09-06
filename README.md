@@ -27,18 +27,126 @@ Dieses Projekt ist ein autonomer Evolutions- und Refactoring-Assistent für ein 
 7. API starten: `uvicorn src.api.app:app --port 8099`
 8. Browser: http://127.0.0.1:8099 (Frontend optional wenn vorhanden)
 
+## Onboarding (Erste Schritte)
+Dieser Abschnitt führt dich in den ersten 10 Minuten zum ersten erfolgreichen Verbesserungsvorschlag.
+
+### 1. Umgebung bereitstellen
+Siehe Quickstart Schritte 1–4. Prüfe mit:
+```
+python run_simulation.py --cycles 0 --dry-run
+```
+Wenn ohne Fehler: Basissetup ok.
+
+### 2. Ziele (Objectives) setzen
+Lege 1–3 klare Ziele fest (kurz & prägnant). Beispiele:
+```
+Dokumentation verbessern
+Tests erhöhen
+Refactoring der Chat-Logik
+```
+UI: Ziele Panel öffnen → eingeben → Speichern. Oder API / Chat:
+```
+/objectives.set Dokumentation verbessern;Tests erhöhen
+```
+
+### 3. Analyse starten
+Nutze:
+```
+/analyze
+```
+Antwort enthält strukturierte Vorschläge (id, title, rationale, diff_hint). Wähle eine Idee aus.
+
+### 4. Idee in Pending verwandeln
+Über UI (später Button) oder aktuell via:
+```
+POST /inject-proposal
+```
+oder Chat-Kommando (wenn vorhanden) – ansonsten nutze das Beispiel aus README weiter unten. Danach erscheint der Vorschlag in Pending Liste (`/pending`).
+
+### 5. Vorschlag anwenden
+```
+POST /apply/<id>
+```
+oder zukünftiger UI Button „Apply“. Prüfe diff vorher mit:
+```
+GET /preview/<id>
+```
+
+### 6. Undo bei Bedarf
+```
+POST /undo
+```
+
+### 7. Erneute Analyse (Feedback Loop)
+Nach Apply erneut `/analyze` ausführen um neue Optimierungsmöglichkeiten basierend auf geändertem Zustand zu erhalten.
+
+### Häufige Stolpersteine
+| Problem | Hinweis |
+|---------|---------|
+| Keine Vorschläge | Noch keine Ziele gesetzt → `/objectives.set` |
+| Diff wirkt leer | diff_hint ist nur ein Hinweis – richtige Diff entsteht erst durch Evolution/Manuell |
+| Apply Fehler | Prüfe `preview` und Dateipfade; manche generierten Diffs können ggf. angepasst werden |
+
+### Häufig genutzte Chat-Kommandos
+| Kommando | Zweck |
+|----------|------|
+| /help | Übersicht aller Chat-Befehle |
+| /objectives.list | Aktuelle Ziele anzeigen |
+| /objectives.set A;B | Ziele setzen / überschreiben |
+| /analyze | Repo + Ziele analysieren |
+| /kb.list | Knowledge Einträge anzeigen |
+| /kb.save | Letzte Assistant Nachricht speichern |
+| /world.init 20 12 | 2D Welt initialisieren (Breite=20, Höhe=12) |
+| /world.spawn agent alpha | Entity erzeugen |
+| /world.tick 5 | Welt 5 Schritte simulieren |
+| /world.ents | Entities auflisten |
+
+### UI Schnellbefehle (Inspiration)
+Eine neue Seitenleiste bietet Buttons mit vorgefertigten Kommandos & Prompts (z.B. „Analyse“, „Ziele anzeigen“, „Welt tick“). Klick = sofort senden; Shift+Klick = nur ins Eingabefeld übernehmen (zum Anpassen). Die Sammlung wird dynamisch vom Endpoint `/ui/suggestions` geladen (erweiterbar in `src/api/app.py::_build_suggestions`). Fallback: statische Minimalmenge falls Endpoint fehlschlägt.
+
+### Proposal Panel (Neu)
+Ein zusätzliches Panel „Proposals“ zeigt Pending Vorschläge strukturiert (ID, Titel, Score). Aktionen:
+* Refresh (lädt `/proposals/pending`)
+* Diff (lädt `/proposals/preview/<id>`, zeigt Unified Diff inline – gekürzt)
+* Apply (POST `/proposals/apply`)
+* Undo (POST `/proposals/undo` – letzte angewandte Änderung)
+
+REST Endpoints (UI nutzt sie intern):
+```
+GET  /proposals/pending
+GET  /proposals/preview/{id}
+POST /proposals/apply {"id": "p1"} (Header: X-API-Key wenn API_KEY gesetzt)
+POST /proposals/undo (Header: X-API-Key)
+GET  /analysis/json (strukturierte letzte Analyse)
+POST /analysis/inject {id,title,rationale,diff_hint?} (Header: X-API-Key)
+```
+Damit lässt sich der Evolutionsfluss auch skriptbar in CI integrieren.
+
+### Warum Chat UND REST API?
+| Aspekt | Chat | REST API |
+|--------|------|----------|
+| Schnelligkeit | Ad-hoc | Skripting / Automatisierung |
+| Transparenz | Gesprächskontext | Klare JSON Antworten |
+| Reproduzierbarkeit | Geringer (freier Text) | Hoch (curl / CI Pipeline) |
+
+Empfehlung: Ideen & Exploration per Chat, verlässliche Workflows (z.B. nightly Analyse) via Skript und API.
+
+---
+
 ## Voraussetzungen & Environment
 Erforderlich:
 * Python 3.11+
 * Git installiert
 * (Optional) Groq API Key für echte LLM Proposals
+ * (Optional) API_KEY für gesicherte Änderungsendpunkte (Apply/Undo/Injection)
 
 Empfohlen: 4+ GB RAM.
 
 `.env` Datei (siehe `.env.example`):
 ```
-GROQ_API_KEY=dein_key_hier   # leer lassen = Dry-Run / Fallback
-EVOLUTION_MODEL=gemma2-9b-it # optional Override
+GROQ_API_KEY=dein_key_hier    # leer lassen = Dry-Run / Fallback
+EVOLUTION_MODEL=gemma2-9b-it  # optional Override
+API_KEY=mein_geheimer_key     # schützt /proposals/apply /proposals/undo /chat/to-proposal /analysis/inject
 ```
 
 Aktiviere Virtual Environment vor allen Befehlen. Unter Windows PowerShell:

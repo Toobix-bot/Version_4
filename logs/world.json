@@ -1,0 +1,18 @@
+{
+  "w": 20,
+  "h": 12,
+  "entities": [
+    {
+      "id": "e354499",
+      "kind": "agent",
+      "x": 12,
+      "y": 8,
+      "energy": 0.98,
+      "exp": 0.01,
+      "brain": "auto",
+      "notes": []
+    }
+  ],
+  "ticks": 5,
+  "controlled": null
+}

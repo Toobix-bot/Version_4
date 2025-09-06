@@ -1,10 +1,13 @@
 from __future__ import annotations
 from fastapi import FastAPI
+from fastapi import Depends, Header, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pathlib import Path
-from typing import List, Any, Dict, TypedDict
+from typing import List, Any, Dict, TypedDict, cast
 from ..core.orchestrator import Orchestrator
 from ..io.groq_client import GroqClient
 from ..core.twin import TwinCoordinator, SnapshotManager
@@ -29,6 +32,15 @@ orch = Orchestrator(repo_root=repo_root)
 gclient = GroqClient()
 twin = TwinCoordinator(repo_root=repo_root)
 snaps = SnapshotManager(repo_root=repo_root)
+import os
+API_KEY_REQUIRED = os.environ.get('API_KEY') or ''
+
+def api_key_guard(x_api_key: str | None = Header(default=None)):
+    if not API_KEY_REQUIRED:
+        return True
+    if x_api_key != API_KEY_REQUIRED:
+        raise HTTPException(status_code=401, detail="invalid or missing API key")
+    return True
 class PersonaDict(TypedDict):
     id: str
     label: str
@@ -62,7 +74,10 @@ COMMAND_CATEGORIES: Dict[str, List[tuple[str,str]]] = {
     'Self': [('self.tick','Selbst-Tick'),('self.show','Self anzeigen')],
     'Coach': [('coach.on','Auto an'),('coach.off','Auto aus')],
     'Analyse': [('analyze','Repo Analyse'),('analysis.last','Letzte Analyse')]
+    , 'World': [('world.init','Welt init'),('world.spawn','Spawn'),('world.tick','Ticks'),('world.ents','Entities'),('world.ctrl','Control'),('world.move','Bewegen'),('world.info','Info')]
+    , 'Improve': [('improve.scan','Heuristik Scan')]
 }
+from ..sim import world as sim_world
 
 # ---- Minimal state & persistence (restored) ---- #
 repo_logs = repo_root / 'logs'
@@ -80,6 +95,7 @@ _energy: Dict[str, float] = { 'focus': 0.5, 'harmony': 0.5, 'fatigue': 0.2 }
 _self_dialog: List[Dict[str, Any]] = []
 _auto_coach_enabled = False
 _last_analysis: List[Dict[str, Any]] = []
+_last_improve: List[Dict[str, Any]] = []
 
 PERSONAS: List[Dict[str,str]] = [
     {'id':'denker','label':'Denker','style':'analytisch|präzise'},
@@ -145,40 +161,41 @@ def _load_json(path: Path) -> Any:
 def _load_chat_history():
     raw = _load_json(repo_logs / 'chat_history.json')
     if isinstance(raw, list):
-        for m in raw[-MAX_CHAT_MESSAGES:]:
-            if isinstance(m, dict) and 'role' in m and 'content' in m:
-                _chat_history.append({
-                    'role': str(m.get('role','user')),
-                    'content': str(m.get('content','')),
-                    'ts': float(m.get('ts', time.time()))
-                })
+        for _m in cast(List[Any], raw[-MAX_CHAT_MESSAGES:]):
+            if isinstance(_m, dict) and 'role' in _m and 'content' in _m:
+                m: Dict[str, Any] = cast(Dict[str, Any], _m)
+                _chat_history.append({'role': str(m.get('role','user')), 'content': str(m.get('content','')), 'ts': float(m.get('ts', time.time()))})
 
 def _load_knowledge():
     raw = _load_json(repo_logs / 'knowledge.json')
     if isinstance(raw, list):
-        for e in raw:
-            if isinstance(e, dict) and 'id' in e:
+        for _e in cast(List[Any], raw):
+            if isinstance(_e, dict) and 'id' in _e:
+                e: Dict[str, Any] = cast(Dict[str, Any], _e)
                 _knowledge_index.append(e)
 
 def _load_reflections():
     raw = _load_json(repo_logs / 'reflections.json')
     if isinstance(raw, list):
-        for r in raw:
-            if isinstance(r, dict):
+        for _r in cast(List[Any], raw):
+            if isinstance(_r, dict):
+                r: Dict[str, Any] = cast(Dict[str, Any], _r)
                 _reflections.append(r)
 
 def _load_long_memory():
     raw = _load_json(repo_logs / 'long_memory.json')
     if isinstance(raw, list):
-        for r in raw:
-            if isinstance(r, dict):
+        for _r in cast(List[Any], raw):
+            if isinstance(_r, dict):
+                r: Dict[str, Any] = cast(Dict[str, Any], _r)
                 _long_memory.append(r)
 
 def _load_notebooks():
     raw = _load_json(repo_logs / 'notebooks.json')
     if isinstance(raw, list):
-        for n in raw:
-            if isinstance(n, dict):
+        for _n in cast(List[Any], raw):
+            if isinstance(_n, dict):
+                n: Dict[str, Any] = cast(Dict[str, Any], _n)
                 _notebooks.append(n)
 
 def _load_energy():
@@ -205,6 +222,11 @@ async def _self_dialog_tick():
 
 # load persisted personas if present
 _load_personas(); _load_chat_history(); _load_knowledge(); _load_reflections(); _load_long_memory(); _load_notebooks(); _load_energy()
+# configure world persistence
+try:
+    sim_world.configure_persistence(repo_logs)
+except Exception:
+    pass
 # keep references so analyzer treats helpers as used (lightweight registry)
 _KEEP_FUNCS = (_save_user_model, _save_personas, _save_reflections, _save_notebooks)
 
@@ -437,6 +459,58 @@ def _legacy_logic(cmd: str, arg: str) -> str | None:  # trimmed set
         if cmd == 'analysis.last':
             if not _last_analysis: return 'Noch keine Analyse.'
             return 'Letzte Analyse: ' + ', '.join(f"{d['id']}:{d['title'][:18]}" for d in _last_analysis[:8])
+        if cmd == 'improve.scan':
+            # Simple local heuristic scan (no LLM) over repo structure
+            suggestions: List[Dict[str, Any]] = []
+            try:
+                py_files = list(repo_root.glob('src/**/*.py'))[:200]
+                large = [p for p in py_files if p.stat().st_size > 40_000]
+                if large:
+                    suggestions.append({'id':'size-trim','title':'Große Dateien reduzieren','rationale': f"{len(large)} Dateien >40KB (z.B. {large[0].name})","diff_hint":"Teile große Module in kleinere logisch kohärente Einheiten."})
+                if 'Improve onboarding documentation.' not in orch.state.objectives:
+                    suggestions.append({'id':'doc-objective','title':'Objective Onboarding prüfen','rationale':'Onboarding Objective fehlt oder anders benannt.','diff_hint':'README Abschnitt Onboarding hervorheben/ergänzen.'})
+                # simple count of pending vs accepted
+                if len(orch.list_pending())==0:
+                    suggestions.append({'id':'no-pending','title':'Neue Zyklen anstoßen','rationale':'Keine Pending Vorschläge vorhanden.','diff_hint':'Führe /cycle oder /analyze aus.'})
+            except Exception:
+                pass
+            global _last_improve
+            _last_improve = suggestions
+            return ('Improve Scan ' + (', '.join(s['id'] for s in suggestions) if suggestions else 'leer'))
+        # --- World commands ---
+        if cmd == 'world.init':
+            parts = [p for p in arg.split() if p.strip()]
+            if len(parts)!=2: return 'Nutze: /world.init <w> <h>'
+            try:
+                w = int(parts[0]); h = int(parts[1])
+            except Exception:
+                return 'Ungültige Zahlen.'
+            return sim_world.init_world(w,h)
+        if cmd == 'world.spawn':
+            kind = (arg.split()[0] if arg.strip() else 'agent')
+            return sim_world.spawn(kind)
+        if cmd == 'world.tick':
+            n = 1
+            if arg.strip():
+                try: n = int(arg.strip())
+                except Exception: pass
+            return sim_world.tick(n)
+        if cmd == 'world.ents':
+            return sim_world.entities_summary()
+        if cmd == 'world.ctrl':
+            eid = arg.strip();
+            if not eid: return 'Nutze: /world.ctrl <id>'
+            return sim_world.control(eid)
+        if cmd == 'world.move':
+            parts = [p for p in arg.split() if p.strip()]
+            if len(parts)!=2: return 'Nutze: /world.move <dx> <dy>'
+            try:
+                dx = int(parts[0]); dy = int(parts[1])
+            except Exception:
+                return 'Ungültig.'
+            return sim_world.move(dx,dy)
+        if cmd == 'world.info':
+            return sim_world.world_info()
     except Exception as e:  # pragma: no cover
         return f'Command Fehler: {e}'[:200]
     return None
@@ -525,7 +599,7 @@ class ChatToProposalResp(BaseModel):
     proposal_id: str | None = None
     error: str | None = None
 
-@app.post('/chat/to-proposal', response_model=ChatToProposalResp)
+@app.post('/chat/to-proposal', response_model=ChatToProposalResp, dependencies=[Depends(api_key_guard)])
 async def chat_to_proposal(req: ChatToProposalRequest):
     # find candidate assistant message
     if not _chat_history:
@@ -566,16 +640,287 @@ class RootResp(BaseModel):
     hint: str
     endpoints: List[str]
 
-@app.get("/", response_model=RootResp)
-async def root():
-    return RootResp(
-        status="ok",
-        message="Evolution Sandbox API",
-        hint="POST /chat  JSON: { 'message': '/meta' }",
-        endpoints=[
-            "POST /chat",
-            "GET /chat/history",
-            "GET /chat/stream?message=...",
-            "POST /chat/to-proposal"
-        ]
+# JSON API meta at /api
+@app.get("/api", response_model=RootResp)
+async def api_root():
+        return RootResp(
+                status="ok",
+                message="Evolution Sandbox API",
+                hint="POST /chat  JSON: { 'message': '/meta' }",
+                endpoints=[
+                        "POST /chat",
+                        "GET /chat/history",
+                        "GET /chat/stream?message=...",
+                        "POST /chat/to-proposal"
+                ]
+        )
+
+# Serve static assets if present
+static_dir = repo_root / 'static'
+static_dir.mkdir(exist_ok=True)
+app.mount('/static', StaticFiles(directory=str(static_dir)), name='static')
+
+LANDING_HTML = """<!DOCTYPE html><html lang='de'><head><meta charset='utf-8'/><title>Evolution Sandbox</title>
+<style>body{font-family:system-ui,Arial,sans-serif;margin:32px;max-width:880px;line-height:1.4;background:#111;color:#eee}code,pre{background:#222;padding:2px 4px;border-radius:3px}a{color:#6cf}h1{margin-top:0}section{margin-bottom:2rem}footer{margin-top:3rem;font-size:.8rem;opacity:.6}</style>
+</head><body>
+<h1>Evolution Sandbox API</h1>
+<p>Diese Seite ist ein minimales Landing. Die JSON-Variante findest du unter <code>/api</code>. Schneller Test per JavaScript unten.</p>
+<section><h2>Endpoints</h2><ul>
+<li>POST <code>/chat</code> – Chat / Commands</li>
+<li>GET <code>/chat/history</code></li>
+<li>GET <code>/chat/stream?message=Hallo</code></li>
+<li>POST <code>/chat/to-proposal</code></li>
+<li>GET <code>/api</code> – Meta JSON</li>
+<li>UI: <a href="/static/chat.html">/static/chat.html</a></li>
+<li>Standard FastAPI Docs: <a href="/docs">/docs</a></li>
+</ul></section>
+<section><h2>Quick Console Test</h2>
+<pre><code>fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message:'/meta'})})
+    .then(r=>r.json()).then(console.log)</code></pre>
+</section>
+<section><h2>Slash Hilfe</h2>
+<pre><code>fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message:'/help'})})
+    .then(r=>r.json()).then(x=>console.log(x.reply))</code></pre>
+</section>
+<footer>Evolution Sandbox &middot; <a href="/api">/api</a></footer>
+<script>console.log('Landing ready');</script>
+</body></html>"""
+
+@app.get('/', response_class=HTMLResponse)
+async def root_html():
+        return HTMLResponse(content=LANDING_HTML, status_code=200)
+
+# --- Additional utility endpoints --- #
+class HealthResp(BaseModel):
+    status: str
+    cycle: int
+    objectives: int
+    pending: int
+
+@app.get('/health', response_model=HealthResp)
+async def health():
+    return HealthResp(status='ok', cycle=orch.state.cycle, objectives=len(orch.state.objectives), pending=len(orch.list_pending()))
+
+@app.get('/chat')
+class ChatGetUsage(BaseModel):
+    error: str
+    why: str
+    example_request: Dict[str, str]
+    streaming: str
+    docs: str
+
+@app.get('/chat', response_model=ChatGetUsage)
+async def chat_usage():
+    return ChatGetUsage(
+        error='Method Not Allowed: verwende POST /chat',
+        why='GET wurde abgelehnt, weil Endpoint nur POST für Nachrichten akzeptiert.',
+        example_request={'message':'/meta'},
+        streaming='Nutze /chat/stream?message=Hallo für SSE (GET).',
+        docs='/docs'
     )
+
+# ---- UI Suggestions (dynamic) ---- #
+class SuggestionItem(BaseModel):
+    label: str
+    cmd: str
+    category: str | None = None
+    kind: str | None = None  # 'slash' | 'prompt'
+    hint: str | None = None
+
+class SuggestionsResp(BaseModel):
+    items: List[SuggestionItem]
+    generated: float
+
+def _build_suggestions() -> List[SuggestionItem]:
+    # Curated core suggestions (extendable later or made configurable)
+    base: List[tuple[str,str,str,str|None]] = [
+        ('Hilfe','/help','System',None),
+        ('Ziele anzeigen','/objectives.list','Ziele',None),
+        ('Analyse','/analyze','Analyse',None),
+        ('Pending','/pending','System','Listet offene Vorschläge'),
+        ('KB Liste','/kb.list','Knowledge',None),
+        ('KB Save','/kb.save','Knowledge',None),
+        ('Meta','/meta','System',None),
+        ('Energy','/energy.show','Energy',None),
+        ('Memory Compress','/memory.compress','Reflexion','Komprimiert langen Chat Verlauf'),
+        ('World Init','/world.init 20 12','World','Initialisiert 20x12'),
+        ('World Spawn','/world.spawn agent alpha','World','Agent erzeugen'),
+        ('World Ents','/world.ents','World','Listet Entities'),
+        ('World Tick 5','/world.tick 5','World','Sim 5 Schritte'),
+        ('Verbesser Doku','Bitte analysiere README und schlage gezielte Verbesserungen für Onboarding vor.','Prompt','Natürliche Sprache'),
+        ('Refactor Hinweis','Nenne 3 interne Refactoring-Ziele mit kurzer Begründung.','Prompt','Natürliche Sprache')
+    ]
+    items: List[SuggestionItem] = []
+    for label, cmd, cat, hint in base:
+        kind = 'slash' if cmd.startswith('/') else 'prompt'
+        items.append(SuggestionItem(label=label, cmd=cmd, category=cat, kind=kind, hint=hint))
+    return items
+
+@app.get('/ui/suggestions', response_model=SuggestionsResp)
+async def ui_suggestions():
+    return SuggestionsResp(items=_build_suggestions(), generated=time.time())
+
+# ---- Structured analysis JSON & injection ---- #
+class AnalysisResp(BaseModel):
+    suggestions: List[Dict[str, Any]]
+    count: int
+
+@app.get('/analysis/json', response_model=AnalysisResp)
+async def analysis_json():
+    if not _last_analysis:
+        _legacy_logic('analyze','')  # trigger analyze once
+    return AnalysisResp(suggestions=_last_analysis, count=len(_last_analysis))
+
+class InjectReq(BaseModel):
+    id: str
+    title: str | None = None
+    rationale: str | None = None
+    diff_hint: str | None = None
+
+class InjectResp(BaseModel):
+    injected: bool
+    proposal_id: str | None = None
+    error: str | None = None
+
+@app.post('/analysis/inject', response_model=InjectResp, dependencies=[Depends(api_key_guard)])
+async def analysis_inject(req: InjectReq):
+    try:
+        base_title = (req.title or req.id or 'Suggestion')[:120]
+        rationale = (req.rationale or '')[:600]
+        diff_body_comment = ''
+        if req.diff_hint:
+            diff_body_comment = '\n'.join('# '+l for l in req.diff_hint.splitlines()[:40])
+        filename = 'README.md'
+        diff = f"--- a/{filename}\n+++ b/{filename}\n@@\n# Injected suggestion {req.id}\n{diff_body_comment}\n"
+        from ..core.models import PatchProposal, Score
+        pid = f"inj{int(time.time())}"
+        proposal = PatchProposal(id=pid, title=base_title, description=rationale or base_title, diff=diff[:20000], rationale=rationale or '', risk_note='analysis-inject')
+        proposal.score = Score(clarity=0.6, impact=0.6, risk=0.4, effort=0.5)
+        orch.approvals.submit(proposal)
+        return InjectResp(injected=True, proposal_id=pid)
+    except Exception as e:
+        return InjectResp(injected=False, error=str(e)[:300])
+
+# ---- Contextual suggestion endpoint (dynamic buttons v2) ---- #
+class ContextSuggestResp(BaseModel):
+    items: List[SuggestionItem]
+    reason: str
+
+@app.get('/ui/context-suggestions', response_model=ContextSuggestResp)
+async def context_suggestions():
+    recent_cmds = [m.get('content','') for m in _chat_history[-12:] if isinstance(m.get('content',''), str) and str(m.get('content','')).startswith('/')]
+    objs = orch.state.objectives[:5]
+    dynamic: List[SuggestionItem] = []
+    if not any('/analyze' in c for c in recent_cmds):
+        dynamic.append(SuggestionItem(label='Analyse jetzt', cmd='/analyze', category='Analyse'))
+    if not any('/cycle' in c for c in recent_cmds):
+        dynamic.append(SuggestionItem(label='Neuer Zyklus', cmd='/cycle', category='System'))
+    if objs and 'test' not in ' '.join(o.lower() for o in objs):
+        dynamic.append(SuggestionItem(label='Ziel Tests hinzufügen', cmd='/objectives.set ' + '; '.join(objs + ['Tests erhöhen']), category='Ziele', hint='Erweitert Ziele um Tests'))
+    if len(orch.list_pending())>0:
+        dynamic.append(SuggestionItem(label='Pending anzeigen', cmd='/pending', category='System'))
+    if not dynamic:
+        dynamic.append(SuggestionItem(label='Hilfe', cmd='/help', category='System'))
+    reason = 'Basierend auf letzten Kommandos & Objectives.'
+    return ContextSuggestResp(items=dynamic, reason=reason)
+
+# ---- Improve suggestions (JSON + inject) ---- #
+class ImproveResp(BaseModel):
+    items: List[Dict[str, Any]]
+    count: int
+
+@app.get('/improve/json', response_model=ImproveResp)
+async def improve_json():
+    # trigger scan if empty
+    if not _last_improve:
+        _legacy_logic('improve.scan','')
+    return ImproveResp(items=_last_improve, count=len(_last_improve))
+
+class ImproveInjectReq(BaseModel):
+    id: str
+
+@app.post('/improve/inject', response_model=InjectResp, dependencies=[Depends(api_key_guard)])
+async def improve_inject(req: ImproveInjectReq):
+    match = None
+    for s in _last_improve:
+        if s.get('id') == req.id:
+            match = s; break
+    if not match:
+        return InjectResp(injected=False, error='id not found')
+    from ..core.models import PatchProposal, Score
+    title = str(match.get('title','Suggestion'))[:120]
+    rationale = str(match.get('rationale',''))[:600]
+    diff_hint = str(match.get('diff_hint',''))
+    diff_body_comment = '\n'.join('# '+l for l in diff_hint.splitlines()[:40]) if diff_hint else '# (placeholder)'
+    filename='README.md'
+    diff = f"--- a/{filename}\n+++ b/{filename}\n@@\n# Improve injected {req.id}\n{diff_body_comment}\n"
+    pid = f"imp{int(time.time())}"
+    proposal = PatchProposal(id=pid, title=title, description=rationale or title, diff=diff[:20000], rationale=rationale, risk_note='improve-inject')
+    proposal.score = Score(clarity=0.58, impact=0.62, risk=0.42, effort=0.5)
+    orch.approvals.submit(proposal)
+    return InjectResp(injected=True, proposal_id=pid)
+
+# ---- Proposals (structured endpoints for UI) ---- #
+class PendingProposal(BaseModel):
+    id: str
+    title: str
+    clarity: float | None = None
+    impact: float | None = None
+    risk: float | None = None
+    effort: float | None = None
+    composite: float | None = None
+
+class PendingListResp(BaseModel):
+    items: List[PendingProposal]
+    count: int
+
+@app.get('/proposals/pending', response_model=PendingListResp)
+async def proposals_pending():
+    items: List[PendingProposal] = []
+    for p in orch.list_pending():
+        sc = p.score
+        items.append(PendingProposal(
+            id=p.id,
+            title=p.title[:160],
+            clarity=getattr(sc,'clarity',None),
+            impact=getattr(sc,'impact',None),
+            risk=getattr(sc,'risk',None),
+            effort=getattr(sc,'effort',None),
+            composite=getattr(sc,'composite',None) if sc else None
+        ))
+    return PendingListResp(items=items, count=len(items))
+
+class PreviewResp(BaseModel):
+    id: str
+    diff: str
+
+@app.get('/proposals/preview/{pid}', response_model=PreviewResp)
+async def proposal_preview(pid: str):
+    diff = orch.preview(pid)
+    return PreviewResp(id=pid, diff=diff)
+
+class ApplyReq(BaseModel):
+    id: str
+
+class ApplyResp(BaseModel):
+    applied: bool
+    id: str | None = None
+    file: str | None = None
+    error: str | None = None
+
+@app.post('/proposals/apply', response_model=ApplyResp, dependencies=[Depends(api_key_guard)])
+async def proposal_apply(req: ApplyReq):
+    try:
+        file_or_msg = orch.apply_after_approval(req.id, dry_run=False)
+        return ApplyResp(applied=True, id=req.id, file=file_or_msg)
+    except Exception as e:  # pragma: no cover
+        return ApplyResp(applied=False, id=req.id, error=str(e)[:300])
+
+class UndoResp(BaseModel):
+    undone: bool
+    id: str | None = None
+
+@app.post('/proposals/undo', response_model=UndoResp, dependencies=[Depends(api_key_guard)])
+async def proposal_undo():
+    res = orch.undo_last()
+    return UndoResp(undone=bool(res), id=res)

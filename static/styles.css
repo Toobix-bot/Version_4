@@ -1,0 +1,49 @@
+body{margin:0;font-family:system-ui,Arial,sans-serif;background:#0e1116;color:#e6e6e6;display:flex;flex-direction:column;height:100vh}
+header{background:#161b22;padding:8px 16px;display:flex;align-items:center;gap:24px;border-bottom:1px solid #222}
+header h1{font-size:18px;margin:0;color:#9dd2ff}
+nav button{background:#243042;color:#fff;border:1px solid #2f3d4f;padding:4px 10px;margin-right:4px;cursor:pointer;font-size:12px;border-radius:4px}
+nav button:hover{background:#2e3c50}
+main{flex:1;display:flex;overflow:hidden}
+#sidebar{width:300px;background:#14181e;border-right:1px solid #222;padding:10px;display:flex;flex-direction:column;gap:16px;overflow:auto}
+#chat-panel{flex:1;display:flex;flex-direction:column;position:relative}
+.messages{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:14px}
+.msg{padding:8px 10px;border-radius:6px;max-width:780px;white-space:pre-wrap;line-height:1.35}
+.msg.user{background:#1f6feb1a;border:1px solid #1f6feb33}
+.msg.assistant{background:#30363d;border:1px solid #3d444d}
+.msg.system{background:#3d2f55;border:1px solid #5b4791}
+.msg.self{background:#2d3c45;border:1px solid #40545f;font-size:12px;opacity:0.85}
+#input-bar{display:flex;gap:8px;padding:8px;background:#161b22;border-top:1px solid #222}
+#input-bar input{flex:1;background:#0d1117;color:#fff;border:1px solid #30363d;border-radius:4px;padding:6px 8px}
+#input-bar button{background:#238636;color:#fff;border:1px solid #2ea043;padding:6px 10px;border-radius:4px;cursor:pointer}
+#input-bar button:hover{background:#2ea043}
+.chk{font-size:12px;display:flex;align-items:center;gap:4px}
+.panel{position:absolute;top:50px;right:40px;width:420px;max-height:60vh;background:#1c2128;border:1px solid #30363d;border-radius:6px;box-shadow:0 4px 14px #000a;display:flex;flex-direction:column}
+.panel.hidden{display:none}
+.panel-header{display:flex;align-items:center;justify-content:space-between;background:#232a31;padding:6px 10px;font-weight:600;border-bottom:1px solid #30363d}
+#help-content{margin:0;padding:10px;font-size:12px;overflow:auto;white-space:pre-wrap}
+.mini-box{font-size:12px;background:#1b222c;padding:6px 8px;border:1px solid #2a3340;border-radius:4px;white-space:pre-wrap}
+.scroll{font-size:12px;max-height:160px;overflow:auto;background:#1b222c;padding:6px 8px;border:1px solid #2a3340;border-radius:4px}
+#objectives-edit{width:100%;min-height:60px;background:#0d1117;color:#eee;border:1px solid #30363d;border-radius:4px;padding:6px;font-size:12px}
+#objectives-list{list-style:none;margin:0;padding:0;font-size:12px;display:flex;flex-direction:column;gap:2px}
+#objectives-list li{background:#1b222c;padding:4px 6px;border:1px solid #2a3340;border-radius:3px}
+footer{background:#161b22;padding:6px 14px;font-size:11px;border-top:1px solid #222}
+a{color:#6cb6ff;text-decoration:none}
+a:hover{text-decoration:underline}
+#pending-indicator{color:#ffda6b}
+/* Suggestions bar */
+.suggestions{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px;background:#141a21;border-top:1px solid #202830}
+.suggestions button{background:#303c48;color:#dce5ec;border:1px solid #3a4654;font-size:11px;padding:4px 8px;border-radius:4px;cursor:pointer}
+.suggestions button:hover{background:#3a4654}
+/* Proposals */
+#proposals-list{font-size:12px}
+#proposals-list .prop-item{border-bottom:1px solid #2a3340;padding:4px 0}
+#proposals-list button{background:#444f5a;border:1px solid #55616d;color:#eef;font-size:11px;padding:3px 6px;border-radius:3px;cursor:pointer}
+#proposals-list button:hover{background:#55616d}
+#proposals-list pre.diff{background:#10161b;border:1px solid #27323d;padding:6px;max-height:240px;overflow:auto;font-size:11px}
+/* Improve / Context */
+#improve-box{font-size:12px;}
+#context-sugg-bar button{background:#38424c;border:1px solid #45515c;color:#e7eef5;font-size:11px;padding:4px 8px;border-radius:4px;cursor:pointer}
+#context-sugg-bar button:hover{background:#45515c}
+#improve-box .imp-item{border-bottom:1px solid #2a3340;padding:4px 0;font-size:12px}
+#improve-box .imp-item button{background:#394a55;border:1px solid #4a5a66;color:#eef;font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer}
+#improve-box .imp-item button:hover{background:#4a5a66}

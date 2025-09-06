@@ -1,0 +1,83 @@
+<!DOCTYPE html><html lang="de">
+<head>
+<meta charset="utf-8"/>
+<title>Evolution Sandbox Chat</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="stylesheet" href="/static/styles.css"/>
+</head>
+<body>
+<header>
+  <h1>Evolution Sandbox</h1>
+  <nav>
+    <button id="btn-refresh-status" title="Status neu laden">Status</button>
+    <button id="btn-help" title="Hilfe anzeigen">Hilfe</button>
+    <button id="btn-objectives" title="Ziele bearbeiten">Ziele</button>
+    <button id="btn-knowledge" title="Knowledge anzeigen">KB</button>
+    <button id="btn-analysis" title="Analyse ausführen">Analyse</button>
+  </nav>
+</header>
+<main>
+  <aside id="sidebar">
+    <section>
+      <h3>Kommandos</h3>
+      <div id="command-cats"></div>
+    </section>
+    <section>
+      <h3>Status</h3>
+      <div id="status-box" class="mini-box">(leer)</div>
+    </section>
+    <section>
+      <h3>Objectives</h3>
+      <ul id="objectives-list"></ul>
+      <textarea id="objectives-edit" placeholder="Alpha; Beta"></textarea>
+      <button id="btn-save-objectives">Speichern</button>
+    </section>
+    <section>
+      <h3>Knowledge</h3>
+      <div id="kb-list" class="scroll"></div>
+    </section>
+    <section>
+      <h3>Analyse</h3>
+      <div id="analysis-box" class="scroll"></div>
+    </section>
+    <section>
+      <h3>Improve Scan</h3>
+      <div id="improve-box" class="scroll"></div>
+      <button id="btn-improve-scan">Scan</button>
+    </section>
+    <section>
+      <h3>Proposals</h3>
+      <div id="proposals-list" class="scroll"></div>
+      <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
+        <button id="btn-proposals-refresh">Refresh</button>
+        <button id="btn-proposal-undo">Undo</button>
+      </div>
+    </section>
+  </aside>
+  <section id="chat-panel">
+    <div id="messages" class="messages"></div>
+    <div id="input-bar">
+      <input id="chat-input" type="text" placeholder="Nachricht oder /befehl" autocomplete="off"/>
+      <label class="chk"><input type="checkbox" id="chk-stream"/> Stream</label>
+      <button id="btn-send">Senden</button>
+      <button id="btn-kb-save" title="Letzte Assistant Nachricht speichern">KB Save</button>
+      <span id="pending-indicator" hidden>...</span>
+    </div>
+    <div id="suggestions-bar" class="suggestions">
+      <!-- Dynamisch via JS gefüllt -->
+    </div>
+    <div id="context-sugg-bar" class="suggestions" style="border-top:0;border-bottom:1px solid #202830">
+      <!-- Kontext-Vorschläge -->
+    </div>
+    <div id="help-panel" class="panel hidden">
+      <div class="panel-header">Hilfe <button id="btn-close-help">x</button></div>
+      <pre id="help-content"></pre>
+    </div>
+  </section>
+</main>
+<footer>
+  <small>Sandbox UI – lokal. <a href="/api" target="_blank">/api</a></small>
+</footer>
+<script src="/static/app.js" type="module"></script>
+</body>
+</html>
