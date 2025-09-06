@@ -142,6 +142,61 @@ Fehlercodes: `ERR_INVALID_KEY`, `ERR_FORBIDDEN`, `ERR_POLICY_VIOLATION`.
 
 ---
 
+## 8.1 Code Index & Suche
+Der eingebaute leichte Code-Index ermöglicht schnelle Dateifindung & kontextuelle Snippets für die Chat-/Analyse-Workflows.
+
+### Endpunkte
+```
+POST /index/build          # Vollständigen Rebuild (write Rolle erforderlich)
+GET  /index/search?q=term  # Token-basierte Trefferliste (Dateiname + Score)
+GET  /index/semantic?q=... # (Optional) Semantische Suche – nur aktiv wenn ENABLE_EMBED_INDEX=1
+GET  /index/snippet?file=path/to/file.py   # Liefert Auszug (ersten ~400 Zeilen begrenzt)
+```
+
+### Funktionsweise (Kurz)
+* Scannt nur Patterns: `*.py, *.md, *.txt` (konfigurierbar per Code-Anpassung)
+* Beschränkungen: MAX_FILE_BYTES=120k pro Datei, MAX_TOTAL_BYTES=3MB Gesamt
+* Tokenisierung: Regex `[A-Za-z0-9_]{3,40}` + camelCase + snake_case Zerlegung
+* Invertierter Index: token -> Liste Dateien
+* Query Expansion: Eingaben werden ebenfalls zerlegt (`DataLoaderManager` → `data`, `loader`, `manager`)
+* Semantik (optional): L2-normalisierte Frequenzvektoren, Cosine-Score
+* Inkrementell: Nach Apply / Undo werden nur geänderte Dateien neu erfasst
+
+### Environment Variablen
+```
+ENABLE_EMBED_INDEX=1    # Aktiviert semantische Suche (Default: aus)
+INDEX_EXCLUDE=docs/old,legacy/tmp.txt  # Komma-Liste relativer Pfade/Präfixe/Endungen zum Ausschluss
+INDEX_DEBUG=1           # Konsolen-Log für Build Zeit & Größe
+```
+
+### UI
+Im Chat existiert ein "Code Suche" Panel:
+* Eingabefeld + Toggle "semantic"
+* Ergebnisliste (Pfeiltasten navigierbar)
+* Snippet Button lädt Ausschnitt
+* Rebuild Button stößt Neuaufbau an
+
+### Metriken (ergänzt)
+`/metrics` enthält Felder:
+```
+last_index_build_ts
+index_file_count
+index_total_bytes
+```
+
+### Best Practices
+* Semantik nur aktivieren wenn Repositorium klein genug (kein Persist Layer – In-Memory)
+* Ausschluss-Liste pflegen um generierte oder große Artefakte zu filtern
+* Vor größeren Refactors optional manuellen Rebuild ausführen
+
+### Geplante Erweiterungen
+* Automatischer Rebuild per TTL oder nach N Applies
+* Binär-/Minified-Erkennung (Heuristik)
+* Erweiterte Ranking-Signale (Dateigröße, Tiefe)
+* Snippet-Zentrierung um Query-Treffer
+
+---
+
 ## 9. Erweiterte Features (Kurzüberblick)
 | Feature | Nutzen | Abschnitt |
 |---------|-------|-----------|
@@ -523,6 +578,15 @@ Aktuell implementiert:
 * `tests/test_versions_and_help.py`
 
 Geplante Ergänzungen: Lint (ruff), Typen (mypy), Coverage Report, AST-Metriken.
+
+CI: GitHub Actions Workflow `.github/workflows/ci.yml` führt Pytests + Docker Build aus.
+API Übersicht (zusätzlich detailliert): `API_ROUTES.md`.
+Runtime Metrics: `GET /metrics` (proposals_generated, applied, acceptance_rate, last_analysis_duration_ms, uptime_s ...)
+Lint & Typen lokal:
+```
+python -m ruff check .
+python -m mypy src
+```
 
 Ausführen (im aktivierten venv):
 ```

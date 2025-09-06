@@ -12,6 +12,7 @@ from ..core.orchestrator import Orchestrator
 from ..io.groq_client import GroqClient
 from ..core.twin import TwinCoordinator, SnapshotManager
 from ..core.analysis import analyze_repository
+from ..core import indexer as code_index
 import time, asyncio, threading
 try:
     from anyio import to_thread
@@ -554,6 +555,11 @@ def _legacy_logic(cmd: str, arg: str) -> str | None:  # trimmed set
                     continue
             _last_analysis = norm
             took = (time.time()-start)*1000
+            try:
+                from ..core import metrics as _metrics
+                _metrics.record_analysis(took)
+            except Exception:
+                pass
             if not norm:
                 return f"Analyse leer ({took:.0f}ms)."
             return f"Analyse {len(norm)} Vorschläge ({took:.0f}ms): " + ', '.join(f"{d['id']}:{d['title'][:18]}" for d in norm[:6])
@@ -618,10 +624,11 @@ def _legacy_logic(cmd: str, arg: str) -> str | None:  # trimmed set
             raw_val = sim_world.STATE.get('entities', [])
             ents_list: List[Dict[str, Any]] = []
             if isinstance(raw_val, list):
-                for _item in raw_val:
-                    if isinstance(_item, dict):
-                        item = cast(Dict[str, Any], _item)
-                        ents_list.append(item)
+                for item_any in raw_val:  # type: ignore[assignment]
+                    # Explicitly narrow each element
+                    if isinstance(item_any, dict):
+                        ent = cast(Dict[str, Any], item_any)
+                        ents_list.append(ent)
             st: Dict[str, Any] = {
                 'w': int(sim_world.STATE.get('w', 0) or 0),
                 'h': int(sim_world.STATE.get('h', 0) or 0),
@@ -636,8 +643,20 @@ def _legacy_logic(cmd: str, arg: str) -> str | None:  # trimmed set
         return f'Command Fehler: {e}'[:200]
     return None
 
+ZERO_WIDTH = ('\u200b','\u200c','\u200d','\ufeff')
+
+def _normalize_command_prefix(raw: str) -> str:
+    t = raw
+    # strip zero width chars at start
+    while t and any(t.startswith(z) for z in ZERO_WIDTH):
+        for z in ZERO_WIDTH:
+            if t.startswith(z):
+                t = t[len(z):]
+                break
+    return t
+
 def _handle_chat_command(text: str) -> str | None:
-    t = text.strip()
+    t = _normalize_command_prefix(text.strip())
     if not t.startswith('/'):
         return None
     parts = t[1:].split(None,1)
@@ -669,6 +688,13 @@ async def chat(req: ChatRequest):
     else:
         raw = gclient.chat_completion(_build_chat_messages(text))
     reply = raw.strip()
+    # Fallback: if looked like a command but not recognized, append hint
+    if _normalize_command_prefix(text).startswith('/') and text.strip().startswith('/') and not reply.lower().startswith('unbekannt:'):
+        # Provide subtle hint for misparsed command
+        if '/' + text.strip()[1:].split()[0] in ('/help','/analyze','/world.init','/world.tick','/world.spawn','/world.info','/objectives.list','/objectives.set'):
+            reply += "\n(Hinweis: Slash-Kommando nicht erkannt? Prüfe verborgene Zeichen / Zero-Width oder sende exakt: /help)"
+    if os.getenv('CHAT_DEBUG') == '1':
+        reply += f"\n[debug cmd_prefix_norm={_normalize_command_prefix(text)[:20]!r}]"
     _chat_history.append({"role": "assistant", "content": reply, "ts": time.time()})
     if len(_chat_history) > MAX_CHAT_MESSAGES:
         del _chat_history[0:len(_chat_history)-MAX_CHAT_MESSAGES]
@@ -798,6 +824,101 @@ async def world_state():
         entities=[e for e in ents[:100]],
     )
 
+# ---- Metrics Endpoint ---- #
+class MetricsResp(BaseModel):
+    uptime_s: float
+    proposals_generated: int
+    proposals_applied: int
+    proposals_undone: int
+    acceptance_rate: float
+    last_analysis_duration_ms: float
+    total_diff_bytes_applied: int
+    total_files_touched: int
+    last_apply_ts: float | None
+    last_analysis_ts: float | None
+    last_index_build_ts: float | None = None
+    index_file_count: int = 0
+    index_total_bytes: int = 0
+
+@app.get('/metrics', response_model=MetricsResp)
+async def metrics_endpoint():
+    try:
+        from ..core import metrics as _metrics
+        data = _metrics.export_metrics()
+        return MetricsResp(**data)  # type: ignore[arg-type]
+    except Exception as e:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"metrics_error: {e}")
+
+# ---- Code Indexing Endpoints ---- #
+class IndexBuildResp(BaseModel):
+    built: bool
+    files: int
+    bytes: int
+    took_ms: float
+
+@app.post('/index/build', response_model=IndexBuildResp, dependencies=[Depends(api_key_guard)])
+async def index_build():
+    import time as _t
+    start = _t.time()
+    idx = code_index.ensure_index(repo_root)
+    idx.build(repo_root)
+    took = (_t.time()-start)*1000
+    return IndexBuildResp(built=True, files=len(idx.files), bytes=idx.total_bytes, took_ms=took)
+
+class IndexMatch(BaseModel):
+    file: str
+    score: int
+
+class IndexSearchResp(BaseModel):
+    query: str
+    matches: List[IndexMatch]
+    took_ms: float
+
+@app.get('/index/search', response_model=IndexSearchResp)
+async def index_search(q: str):
+    import time as _t
+    start = _t.time()
+    idx = code_index.ensure_index(repo_root)
+    ranked = idx.search_tokens(q)
+    took = (_t.time()-start)*1000
+    return IndexSearchResp(query=q, matches=[IndexMatch(file=f, score=s) for f,s in ranked], took_ms=took)
+
+class SemanticMatch(BaseModel):
+    file: str
+    score: float
+
+class SemanticSearchResp(BaseModel):
+    query: str
+    matches: List[SemanticMatch]
+    took_ms: float
+    enabled: bool
+
+@app.get('/index/semantic', response_model=SemanticSearchResp)
+async def index_semantic(q: str, limit: int = 10):
+    import time as _t, os as _os
+    start = _t.time()
+    idx = code_index.ensure_index(repo_root)
+    enabled = _os.getenv('ENABLE_EMBED_INDEX') == '1'
+    ranked = idx.semantic_search(q, limit=limit) if enabled else []
+    took = (_t.time()-start)*1000
+    return SemanticSearchResp(query=q, matches=[SemanticMatch(file=f, score=float(s)) for f,s in ranked], took_ms=took, enabled=enabled)
+
+class IndexSnippetResp(BaseModel):
+    file: str
+    head: str
+    tail: str
+    size: int
+
+@app.get('/index/snippet', response_model=IndexSnippetResp)
+async def index_snippet(file: str):
+    idx = code_index.ensure_index(repo_root)
+    text = idx.files.get(file)
+    if text is None:
+        raise HTTPException(status_code=404, detail='not indexed')
+    head = text[:800]
+    tail = text[-400:] if len(text) > 1200 else ''
+    return IndexSnippetResp(file=file, head=head, tail=tail, size=len(text))
+
 # Serve static assets if present
 static_dir = repo_root / 'static'
 static_dir.mkdir(exist_ok=True)
@@ -901,6 +1022,32 @@ def _build_suggestions() -> List[SuggestionItem]:
         items.append(SuggestionItem(label=label, cmd=cmd, category=cat, kind=kind, hint=hint))
     return items
 
+# ---- UI Command Catalog ---- #
+class CommandItem(BaseModel):
+    command: str
+    label: str
+    description: str | None = None
+
+class CommandCategoryModel(BaseModel):
+    name: str
+    items: List[CommandItem]
+
+class CommandsCatalogResp(BaseModel):
+    categories: List[CommandCategoryModel]
+    count: int
+    generated: float
+
+@app.get('/ui/commands', response_model=CommandsCatalogResp)
+async def ui_commands_catalog():
+    cats: List[CommandCategoryModel] = []
+    for cat, pairs in COMMAND_CATEGORIES.items():
+        entries: List[CommandItem] = []
+        for cmd, desc in pairs:
+            entries.append(CommandItem(command='/' + cmd, label=cmd, description=desc))
+        cats.append(CommandCategoryModel(name=cat, items=entries))
+    total = sum(len(c.items) for c in cats)
+    return CommandsCatalogResp(categories=cats, count=total, generated=time.time())
+
 @app.get('/ui/suggestions', response_model=SuggestionsResp)
 async def ui_suggestions():
     return SuggestionsResp(items=_build_suggestions(), generated=time.time())
@@ -968,6 +1115,67 @@ async def context_suggestions():
         dynamic.append(SuggestionItem(label='Hilfe', cmd='/help', category='System'))
     reason = 'Basierend auf letzten Kommandos & Objectives.'
     return ContextSuggestResp(items=dynamic, reason=reason)
+
+# ---- Reply suggestions (next-step buttons based on last assistant msg & state) ---- #
+@app.get('/ui/reply-suggestions', response_model=ContextSuggestResp)
+async def reply_suggestions():
+    """Generate short follow-up suggestion buttons tailored to latest assistant output and current state.
+
+    Heuristic + optional LLM (guarded by REPLY_SUGGEST_LLM=1) to keep fast local default.
+    """
+    last_assistant = ''
+    for m in reversed(_chat_history):  # find last assistant message
+        if m.get('role') == 'assistant':
+            last_assistant = str(m.get('content',''))
+            break
+    dynamic: List[SuggestionItem] = []
+    recent_cmds = [c for c in (m.get('content','') for m in _chat_history[-10:]) if isinstance(c,str) and c.startswith('/')]
+    # Core follow-up command style suggestions
+    if '/analyze' not in recent_cmds:
+        dynamic.append(SuggestionItem(label='Analyse vertiefen', cmd='/analyze', category='Analyse', hint='Neue Codebasis Analyse'))
+    if '/cycle' not in recent_cmds:
+        dynamic.append(SuggestionItem(label='Zyklus starten', cmd='/cycle', category='System', hint='Generiere + bewerte Vorschläge'))
+    if '/pending' not in recent_cmds and len(orch.list_pending())>0:
+        dynamic.append(SuggestionItem(label='Pending anzeigen', cmd='/pending', category='System'))
+    if '/world.tick' not in recent_cmds and 'world' in last_assistant.lower():
+        dynamic.append(SuggestionItem(label='World Tick 3', cmd='/world.tick 3', category='World'))
+    # Prompt style (natural language) suggestions derived heuristically
+    nl_prompts: List[str] = []
+    if last_assistant:
+        lower = last_assistant.lower()
+        if 'analyse' in lower or 'analysis' in lower:
+            nl_prompts.append('Bitte fasse die wichtigsten Risiken in 3 Bullet Points zusammen.')
+            nl_prompts.append('Gib mir eine priorisierte Liste mit maximal 5 konkreten nächsten Schritten.')
+        if 'proposal' in lower or 'vorschlag' in lower:
+            nl_prompts.append('Bewerte die vorgeschlagenen Änderungen nach Nutzen vs. Aufwand in einer kleinen Tabelle.')
+        if 'world' in lower or 'entity' in lower:
+            nl_prompts.append('Schlage 2 sinnvolle World Entitäten zusätzlich vor und begründe kurz.')
+    if not nl_prompts:
+        nl_prompts = [
+            'Fasse die letzten Punkte in 2 kurzen Sätzen für ein Changelog zusammen.',
+            'Welche Qualitäts- oder Sicherheitslücke ist aktuell am größten? Antworte kurz.'
+        ]
+    for p in nl_prompts[:3]:
+        dynamic.append(SuggestionItem(label=p[:42] + ('…' if len(p)>42 else ''), cmd=p, category='Prompt', kind='prompt', hint='KI Prompt'))
+    # Optional LLM enrichment (adds up to 2 extra natural prompts)
+    if os.getenv('REPLY_SUGGEST_LLM') == '1' and gclient:
+        try:
+            prompt = ('Erzeuge 2 sehr kurze sinnvolle Follow-Up Prompts (je < 90 Zeichen) für einen Nutzer, basierend auf: ' + last_assistant[:800])
+            # reuse internal builder to satisfy type expectations
+            enrich_msgs = _build_chat_messages(prompt)
+            if to_thread:
+                raw = await to_thread.run_sync(lambda: gclient.chat_completion(enrich_msgs))
+            else:
+                raw = gclient.chat_completion(enrich_msgs)
+            for line in raw.splitlines():
+                line=line.strip('- *\t ')[:160]
+                if not line: continue
+                if len([d for d in dynamic if d.kind=='prompt'])>=6: break
+                dynamic.append(SuggestionItem(label=line[:42]+('…' if len(line)>42 else ''), cmd=line, category='Prompt', kind='prompt'))
+        except Exception:  # pragma: no cover
+            pass
+    reason = 'Abgeleitet aus letzter Assistant Nachricht & Zustand.'
+    return ContextSuggestResp(items=dynamic[:10], reason=reason)
 
 # ---- Improve suggestions (JSON + inject) ---- #
 class ImproveResp(BaseModel):

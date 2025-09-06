@@ -32,6 +32,8 @@ a:hover{text-decoration:underline}
 #pending-indicator{color:#ffda6b}
 /* Suggestions bar */
 .suggestions{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px;background:#141a21;border-top:1px solid #202830}
+.suggestions.tier{background:#10151b}
+#suggestions-wrapper{display:flex;flex-direction:column;border-top:1px solid #202830;border-bottom:1px solid #202830}
 .suggestions button{background:#303c48;color:#dce5ec;border:1px solid #3a4654;font-size:11px;padding:4px 8px;border-radius:4px;cursor:pointer}
 .suggestions button:hover{background:#3a4654}
 /* Proposals */
@@ -42,8 +44,27 @@ a:hover{text-decoration:underline}
 #proposals-list pre.diff{background:#10161b;border:1px solid #27323d;padding:6px;max-height:240px;overflow:auto;font-size:11px}
 /* Improve / Context */
 #improve-box{font-size:12px;}
-#context-sugg-bar button{background:#38424c;border:1px solid #45515c;color:#e7eef5;font-size:11px;padding:4px 8px;border-radius:4px;cursor:pointer}
-#context-sugg-bar button:hover{background:#45515c}
+#context-sugg-bar button,#reply-sugg-bar button{background:#38424c;border:1px solid #45515c;color:#e7eef5;font-size:11px;padding:4px 8px;border-radius:4px;cursor:pointer}
+#context-sugg-bar button:hover,#reply-sugg-bar button:hover{background:#45515c}
 #improve-box .imp-item{border-bottom:1px solid #2a3340;padding:4px 0;font-size:12px}
 #improve-box .imp-item button{background:#394a55;border:1px solid #4a5a66;color:#eef;font-size:10px;padding:2px 6px;border-radius:3px;cursor:pointer}
 #improve-box .imp-item button:hover{background:#4a5a66}
+/* Command catalog */
+.cmd-cats{display:flex;flex-direction:column;gap:6px;font-size:11px}
+.cmd-section{border:1px solid #2a3340;border-radius:4px;background:#1b222c}
+.cmd-section h4{margin:0;padding:4px 6px;font-size:11px;background:#222b33;color:#9dc7ff;border-bottom:1px solid #2a3340}
+.cmd-items{display:flex;flex-wrap:wrap;gap:4px;padding:6px}
+.cmd-items button{background:#2c3945;color:#d4e2ef;border:1px solid #3a4854;font-size:10px;padding:3px 6px;border-radius:3px;cursor:pointer}
+.cmd-items button:hover{background:#364652}
+.cmd-items button span.desc{display:block;font-size:9px;opacity:.7;margin-top:2px}
+@media (max-width:1100px){#sidebar{width:250px}}
+
+/* Code Search Panel */
+#code-search-panel.panel.small{top:auto;right:12px;bottom:12px;width:360px;max-height:380px}
+#code-search-panel input{background:#0d1117;color:#e6e6e6;border:1px solid #30363d;border-radius:4px;padding:5px 7px;font-size:12px}
+#code-search-results{background:#0f1419;border:1px solid #27323d;border-radius:4px;padding:4px 0}
+.code-result-item{padding:4px 8px;cursor:pointer;font-size:12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e2730}
+.code-result-item:last-child{border-bottom:none}
+.code-result-item:hover{background:#1e2730}
+.code-result-item.active{background:#2563eb;color:#fff}
+.snippet-box{background:#11181f;border:1px solid #27323d;border-radius:4px;padding:6px;font-size:11px;line-height:1.3;max-height:180px;overflow:auto;margin-top:6px}

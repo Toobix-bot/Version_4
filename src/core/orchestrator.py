@@ -42,6 +42,12 @@ class Orchestrator:
     # ---------------- Main Cycle ---------------- #
     def cycle(self, dry_run: bool = True) -> List[PatchProposal]:
         proposals = self.evolution.propose(self.state)
+        # metrics: proposals generated
+        try:
+            from . import metrics as _metrics
+            _metrics.inc_generated(len(proposals))
+        except Exception:
+            pass
         scored: List[PatchProposal] = []
         for p in proposals:
             p.score = self.scoring.score(p)
@@ -137,6 +143,20 @@ class Orchestrator:
             if applied_files:
                 lightweight_changelog(self.repo_root, f"Applied {proposal.id} -> {', '.join(applied_files)}")
             self.logger.write({"event": "apply", "id": proposal.id, "files": applied_files})
+            # metrics: applied
+            try:
+                from . import metrics as _metrics
+                _metrics.inc_applied(proposal.diff)
+            except Exception:
+                pass
+            # incremental index update
+            try:
+                from . import indexer as _idx
+                idx = _idx.ensure_index(self.repo_root)
+                if applied_files:
+                    idx.update_files(self.repo_root, applied_files)
+            except Exception:
+                pass
             self._save_state()
             return ', '.join(applied_files)
         return f"(dry-run) {', '.join(f for f,_ in segments)}"
@@ -173,4 +193,14 @@ class Orchestrator:
         self.state.backups.pop(last, None)
         self._save_state()
         self.logger.write({"event": "undo", "id": last})
+        # reindex affected files (undo can restore originals)
+        try:
+            from . import indexer as _idx
+            idx = _idx.ensure_index(self.repo_root)
+            restored_raw = [b.get('file') for b in bkp_list]
+            restored: list[str] = [r for r in restored_raw if isinstance(r, str)]
+            if restored:
+                idx.update_files(self.repo_root, restored)
+        except Exception:
+            pass
         return last
