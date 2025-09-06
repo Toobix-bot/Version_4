@@ -615,14 +615,20 @@ def _legacy_logic(cmd: str, arg: str) -> str | None:  # trimmed set
         if cmd == 'world.info':
             return sim_world.world_info()
         if cmd == 'world.state':
-            # Lightweight summary (first 50 entities)
-            st = {
-                'w': sim_world.STATE.get('w'),
-                'h': sim_world.STATE.get('h'),
-                'ticks': sim_world.STATE.get('ticks'),
+            raw_val = sim_world.STATE.get('entities', [])
+            ents_list: List[Dict[str, Any]] = []
+            if isinstance(raw_val, list):
+                for _item in raw_val:
+                    if isinstance(_item, dict):
+                        item = cast(Dict[str, Any], _item)
+                        ents_list.append(item)
+            st: Dict[str, Any] = {
+                'w': int(sim_world.STATE.get('w', 0) or 0),
+                'h': int(sim_world.STATE.get('h', 0) or 0),
+                'ticks': int(sim_world.STATE.get('ticks', 0) or 0),
                 'controlled': sim_world.STATE.get('controlled'),
-                'entities': [e for e in sim_world.STATE.get('entities',[])[:50]],
-                'entities_total': len(sim_world.STATE.get('entities',[])),
+                'entities': ents_list[:50],
+                'entities_total': len(ents_list),
             }
             import json as _json
             return _json.dumps(st, ensure_ascii=False)
@@ -758,12 +764,17 @@ class RootResp(BaseModel):
 # JSON API meta at /api
 @app.get("/api", response_model=RootResp)
 async def api_root():
-    eps = sorted({r.path for r in app.routes if getattr(r, 'path', None)})
+    paths: List[str] = []
+    for r in app.routes:
+        p = getattr(r, 'path', None)
+        if isinstance(p, str):
+            paths.append(p)
+    paths = sorted(set(paths))
     return RootResp(
         status="ok",
         message="Evolution Sandbox API",
         hint="Use /help or /meta (chat) | /world/state for world JSON",
-        endpoints=eps,
+        endpoints=paths,
     )
 
 # ---- World State Endpoint ---- #
@@ -773,7 +784,7 @@ class WorldStateResp(BaseModel):
     ticks: int
     controlled: str | None
     entities_total: int
-    entities: List[dict]
+    entities: List[Dict[str, Any]]
 
 @app.get('/world/state', response_model=WorldStateResp)
 async def world_state():
