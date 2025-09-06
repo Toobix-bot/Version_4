@@ -1,0 +1,18 @@
+version: '3.9'
+services:
+  evo-api:
+    build: .
+    image: evo-sandbox:latest
+    container_name: evo-api
+    ports:
+      - "8099:8099"
+    environment:
+      # Provide either legacy single key OR role mapping
+      API_KEY: ${API_KEY:-}
+      API_TOKENS: ${API_TOKENS:-}
+      RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-180}
+      DISABLE_RATE_LIMIT: ${DISABLE_RATE_LIMIT:-0}
+    volumes:
+      - ./logs:/app/logs
+      - ./workspace:/app/workspace # optional extra mount for generated artifacts
+    restart: unless-stopped

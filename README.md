@@ -621,6 +621,100 @@ Stand: Konsolidiertes Onboarding aktiv. Für Feedback / Erweiterungswünsche Iss
 
 ---
 
+## Deployment & Betrieb (Docker)
+Dieser Abschnitt zeigt, wie die API produktionsnah gestartet werden kann.
+
+### 1. Docker Build (lokal)
+```powershell
+docker build -t evo-sandbox:latest .
+docker run --rm -p 8099:8099 -e API_TOKENS="admin123:admin" evo-sandbox:latest
+```
+Aufruf Test:
+```powershell
+curl http://127.0.0.1:8099/health
+```
+
+### 2. docker-compose (empfohlen lokal)
+`docker-compose.yml` vorhanden:
+```powershell
+copy .env.example .env   # Variablen anpassen
+docker compose up -d --build
+```
+Logs ansehen:
+```powershell
+docker compose logs -f evo-api
+```
+Beenden:
+```powershell
+docker compose down
+```
+
+Standard-Volumes:
+* `./logs` → `/app/logs` (Version History, Chat History, Backups)
+* `./workspace` optionaler zusätzlicher Mount für generierte Artefakte
+
+### 3. Wichtige Environment Variablen
+| Variable | Zweck |
+|----------|-------|
+| API_KEY | Single-Key (Fallback) Admin Modus |
+| API_TOKENS | Rollen Mapping (read/write/admin) |
+| RATE_LIMIT_PER_MIN | Globales Limit Requests/Minute |
+| DISABLE_RATE_LIMIT | `1` = deaktiviert (nur Tests) |
+| GROQ_API_KEY | Aktiviert echte LLM Vorschläge |
+| LOG_LEVEL | Uvicorn/Anwendung Log Level |
+
+### 4. Reverse Proxy (Kurzskizze Nginx)
+```
+server {
+	listen 80;
+	server_name deine.domain.tld;
+	location / {
+		proxy_pass http://127.0.0.1:8099;
+		proxy_set_header Host $host;
+		proxy_set_header X-Forwarded-For $remote_addr;
+		proxy_set_header X-Forwarded-Proto $scheme;
+	}
+}
+```
+TLS über Let's Encrypt / Certbot ergänzen und anschließend Port 80 → 443 Redirect.
+
+### 5. Health & Monitoring
+| Endpoint | Nutzung |
+|----------|---------|
+| `/health` | Basisverfügbarkeit |
+| `/versions` | Änderungs-Historie prüfen |
+| `/help` | Befehlsreferenz |
+| (geplant `/metrics`) | KPI & Zyklenmetriken |
+
+Dateibasierte Logs sind JSONL & Markdown – zur zentralen Sammlung (ELK, Loki) per Filebeat/Promtail mounten.
+
+### 6. Sicherheits-Checkliste (Minimal)
+* Nur benötigte Ports öffnen (8099 intern, extern via 80/443 Reverse Proxy)
+* `API_TOKENS` statt Single-Key für differenzierte Rechte
+* Rate Limit nicht deaktivieren in Prod
+* Logs regelmäßig rotieren oder extern sammeln
+* Backups (`.backup_*.txt`) und `version_history.jsonl` nicht öffentlich serven
+* Zukunft: Secret Scanner / Test-Gate aktivieren (Roadmap)
+
+### 7. Zero-Downtime Upgrade (einfach)
+1. Neues Image bauen & taggen (`evo-sandbox:vX`)
+2. `docker compose pull / build` + `up -d`
+3. Health prüfen
+4. Altes Image aufräumen (`docker image prune`)
+
+### 8. Skalierung
+* Stateless (In-Memory Rate Limit) → für mehrere Replikate externen Store (Redis) einsetzen
+* Version History & Chat per Shared Volume oder Objekt-Storage (S3) zentralisieren
+* Frontend/Static Files können von CDN / Edge Cache bedient werden
+
+### 9. Nicht-Container Betrieb (Fallback)
+```powershell
+python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8099 --workers 2
+```
+Vorher `.env` laden und venv aktivieren. Für Prod `--workers` > 1 (CPU Kerne beachten).
+
+---
+
 ## Nächste mögliche Ausbauten
 | Idee | Nutzen |
 |------|-------|
