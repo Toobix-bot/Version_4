@@ -149,7 +149,7 @@ COMMAND_CATEGORIES: Dict[str, List[tuple[str,str]]] = {
     'Ziele': [('objectives.list','Ziele zeigen'),('objectives.set','Ziele setzen')],
     'Knowledge': [('kb.save','Speichern'),('kb.list','Auflisten'),('kb.search','Suchen'),('kb.get','Zeigen'),('kb.inject','In Chat injizieren')],
     'Analyse': [('analyze','Repo Analyse'),('analysis.last','Letzte Analyse')],
-    'World': [('world.init','Welt init'),('world.spawn','Spawn'),('world.tick','Ticks'),('world.ents','Entities'),('world.ctrl','Control'),('world.move','Bewegen'),('world.info','Info')],
+    'World': [('world.init','Welt init'),('world.spawn','Spawn'),('world.tick','Ticks'),('world.ents','Entities'),('world.ctrl','Control'),('world.move','Bewegen'),('world.info','Info'),('world.state','JSON State')],
     'Improve': [('improve.scan','Heuristik Scan')]
 }
 from ..sim import world as sim_world
