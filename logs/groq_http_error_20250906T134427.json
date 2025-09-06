@@ -1,0 +1,20 @@
+{
+  "status": 400,
+  "url": "https://api.groq.com/openai/v1/chat/completions",
+  "payload": {
+    "model": "mixtral-8x7b-32768",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Kurz antworten."
+      },
+      {
+        "role": "user",
+        "content": "Kurzer Benchmark Satz."
+      }
+    ],
+    "temperature": 0.7,
+    "max_tokens": 512
+  },
+  "response": "{\"error\":{\"message\":\"The model `mixtral-8x7b-32768` has been decommissioned and is no longer supported. Please refer to https://console.groq.com/docs/deprecations for a recommendation on which model to use instead.\",\"type\":\"invalid_request_error\",\"code\":\"model_decommissioned\"}}\n"
+}

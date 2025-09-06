@@ -1,0 +1,20 @@
+{
+  "status": 404,
+  "url": "https://api.groq.com/openai/v1/chat/completions",
+  "payload": {
+    "model": "llama3-8b-instruct",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Kurzer Test"
+      },
+      {
+        "role": "user",
+        "content": "Sag kurz hallo"
+      }
+    ],
+    "temperature": 0.7,
+    "max_tokens": 512
+  },
+  "response": "{\"error\":{\"message\":\"The model `llama3-8b-instruct` does not exist or you do not have access to it.\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\"}}\n"
+}

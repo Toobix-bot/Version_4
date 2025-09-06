@@ -1,0 +1,35 @@
+{
+  "objectives": [
+    "Improve onboarding documentation."
+  ],
+  "accepted_patches": [
+    "p_arch",
+    "p_roadmap",
+    "p_testing"
+  ],
+  "cycle": 6,
+  "notes": {},
+  "backups": {
+    "p_arch": [
+      {
+        "file": "ARCHITECTURE.md",
+        "path": null,
+        "original_exists": false
+      }
+    ],
+    "p_roadmap": [
+      {
+        "file": "ROADMAP.md",
+        "path": null,
+        "original_exists": false
+      }
+    ],
+    "p_testing": [
+      {
+        "file": "TESTING.md",
+        "path": null,
+        "original_exists": false
+      }
+    ]
+  }
+}
