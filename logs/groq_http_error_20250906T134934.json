@@ -1,0 +1,20 @@
+{
+  "status": 404,
+  "url": "https://api.groq.com/openai/v1/chat/completions",
+  "payload": {
+    "model": "llama3-8b-instruct",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Du bist ein hilfreicher Verbesserungsagent."
+      },
+      {
+        "role": "user",
+        "content": "Erzeuge bis zu 3 kleine, sichere Verbesserungsvorschl\u00e4ge f\u00fcr dieses Projekt. GIB AUSSCHLIESSLICH EIN VALIDES JSON-ARRAY OHNE EINLEITUNG ODER ERKL\u00c4RUNG AUS. Schema: [{\"id\":str,\"title\":str,\"description\":str,\"rationale\":str,\"filename\":str,\"content\":str}]. Regeln: id kurz (p_<slug>), nur neue oder verbesserte kleine Dateien (Doku, Guide, Config-Hinweis), kein Code der Ausf\u00fchrungssch\u00e4den verursacht. Kein Markdown au\u00dferhalb des JSON. Beispiel: [{\"id\":\"p_example\",\"title\":\"Add helper doc\",\"description\":\"Short helper explanation\",\"rationale\":\"Clarity\",\"filename\":\"HELPER.md\",\"content\":\"# Helper\nKurze Beschreibung\"}]"
+      }
+    ],
+    "temperature": 0.7,
+    "max_tokens": 512
+  },
+  "response": "{\"error\":{\"message\":\"The model `llama3-8b-instruct` does not exist or you do not have access to it.\",\"type\":\"invalid_request_error\",\"code\":\"model_not_found\"}}\n"
+}

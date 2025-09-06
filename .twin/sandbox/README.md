@@ -1,23 +1,5 @@
-## Überblick
-Dieses Projekt ist ein autonomer Evolutions- und Refactoring-Assistent für ein Code-Repository. Er generiert Verbesserungsvorschläge (Proposals) mittels LLM, bewertet sie, erlaubt Sandbox-Experimente in einem Klon (Twin), verwaltet Snapshots, berücksichtigt definierte Ziele (Objectives) und bietet ein Chat-Interface zur interaktiven Steuerung.
-
-## Inhaltsverzeichnis
-1. Überblick
-2. Schneller Überblick (Quickstart)
-3. Voraussetzungen & Environment
-4. Architektur (Kurz)
-5. Twin / Sandbox Konzept
-6. Ziele & Analyse
-7. Chat Interface
-8. Erweiterte API Übersicht
-9. Tests & Qualität (geplant)
-10. Troubleshooting
-11. Contribution Guide
-12. Glossar
-13. Roadmap / Nächste Ausbauten
-
 <!-- Quickstart Enhancement Start -->
-## Schneller Überblick (Quickstart)
+## Schneller Überblick (Einfach)
 1. Umgebung anlegen: `python -m venv .venv`
 2. Aktivieren (PowerShell): `./.venv/Scripts/Activate.ps1`
 3. Abhängigkeiten: `pip install -r requirements.txt`
@@ -26,65 +8,6 @@ Dieses Projekt ist ein autonomer Evolutions- und Refactoring-Assistent für ein 
 6. Vorschlag anwenden: `python run_simulation.py --apply p1 --cycles 1`
 7. API starten: `uvicorn src.api.app:app --port 8099`
 8. Browser: http://127.0.0.1:8099 (Frontend optional wenn vorhanden)
-
-## Voraussetzungen & Environment
-Erforderlich:
-* Python 3.11+
-* Git installiert
-* (Optional) Groq API Key für echte LLM Proposals
-
-Empfohlen: 4+ GB RAM.
-
-`.env` Datei (siehe `.env.example`):
-```
-GROQ_API_KEY=dein_key_hier   # leer lassen = Dry-Run / Fallback
-EVOLUTION_MODEL=gemma2-9b-it # optional Override
-```
-
-Aktiviere Virtual Environment vor allen Befehlen. Unter Windows PowerShell:
-```
-python -m venv .venv
-./.venv/Scripts/Activate.ps1
-```
-
-## Architektur (Kurz)
-```
-User UI (Single Page / FastAPI) ─┬─ /cycle  -> EvolutionAgent (generiert Vorschläge)
-								├─ /apply  -> Approval & Score Gate
-								├─ /twin   -> TwinCoordinator (sandbox/)
-								├─ /snapshot -> SnapshotManager
-								├─ /analyze -> Repository Sampling + Ziele
-								├─ /chat   -> Chat + Persistenter Verlauf
-								└─ /groq-check -> LLM Erreichbarkeit
-
-GroqClient -> LLM Modelle (oder Fake/Fallback) → JSON Proposals
-State (.evo_state.json) speichert Cycle, Pending, Objectives
-logs/ enthält: chat_history.json, timing Logs, evtl. spätere Metriken
-```
-
-Kernideen:
-* Deterministischer Diff-Fluss (Preview vor Apply)
-* Sandbox ermöglicht risikolose Mehrfachzyklen
-* Objectives formen Prompt-Kontext
-* Chat als kollaboratives Steuerinstrument
-
-## Twin / Sandbox (Zusammenfassung)
-Details weiter unten im vorhandenen Abschnitt „Twin / Klon System (Neu)“. Dieser Abschnitt bleibt Quelle für tiefergehende Nutzung. Hier nur Kurzvorteile:
-* Isoliertes Explorieren
-* Schnelle Resets & Snapshots
-* Selektive Promotion einzelner Dateien
-
-## Ziele / Analyse (Kurzübersicht)
-* POST `/objectives` setzt Ziele
-* GET `/analyze` liefert strukturierte Suggestions (id, title, rationale, diff_hint)
-* POST `/inject-proposal` konvertiert Suggestion → Pending-Eintrag
-
-## Chat (Kurz)
-* Persistenz: `logs/chat_history.json` (max 50)
-* Kontext: Einbettung der Objectives
-* Optional direkte Umwandlung letzter Assistant-Antwort in Proposal (`/chat/to-proposal`)
-
----
 
 ## API Endpunkte (Kurz)
 | Methode | Pfad | Zweck |
@@ -256,77 +179,6 @@ UI: Button "→ Proposal" im Chat-Panel konvertiert automatisch die letzte Assis
 | POST | /snapshot/create | Snapshot speichern |
 | GET | /snapshot/list | Snapshot-Liste |
 | POST | /snapshot/restore/{id} | Snapshot wiederherstellen |
-
-## Tests & Qualität (Geplant)
-Aktuell keine produktiven Tests eingebracht. Vorgesehene Toolchain:
-* pytest – Unit/Integration Tests
-* ruff – Linting
-* mypy – Typprüfung
-* black / isort – Format / Imports
-
-Beispiel (zukünftig):
-```
-pytest -q
-ruff check .
-mypy src/
-```
-
-## Troubleshooting
-| Problem | Ursache | Lösung |
-|---------|---------|--------|
-| Port belegt | Vorheriger Prozess läuft | Anderen Port wählen: `--port 8105` |
-| Kein LLM Output / nur Platzhalter | Kein GROQ_API_KEY | `.env` prüfen, `/groq-check` aufrufen |
-| Chat zeigt nichts | Browser Cache | Hard Reload (Ctrl+F5) |
-| Sandbox hängt | Inkonstenter Zustand | `/twin/reset` oder `.twin/sandbox` löschen |
-| Vorschlag Apply Fehler | Diff Konflikt / invalider Patch | Preview prüfen, ggf. Undo und erneut generieren |
-| Snapshot Restore ohne Effekt | Falsche ID | `/snapshot/list` prüfen |
-
-## Contribution Guide
-Grundprinzipien:
-* Kleine, fokussierte Änderungen
-* Klarer Titel & rationale im Proposal (Imperativ)
-* Konsistente Diff Struktur (Unified)
-
-Branches (Empfehlung):
-```
-feature/<kurz-beschreibung>
-fix/<issue-id-oder-kurz>
-docs/<bereich>
-```
-
-Neuen Endpoint hinzufügen:
-1. Pydantic Model im `app.py` definieren
-2. FastAPI Route + Response Model
-3. (Optional) UI Hook (Button / Panel)
-4. README erweitern falls öffentlich
-
-LLM Prompt-Anpassungen: In GroqClient oder beim Zusammenbau der Nachrichten; Objectives bewusst knapp halten (1 Zeile pro Ziel).
-
-## Glossar
-| Begriff | Bedeutung |
-|---------|-----------|
-| Cycle | Ein Generationslauf neuer Vorschläge (dry-run) |
-| Pending | Warteschlange noch nicht angewandter Vorschläge |
-| Proposal | Strukturierter Änderungsvorschlag (Diff + Metadaten) |
-| Twin / Sandbox | Klon des Repos für isolierte Experimente |
-| Promotion | Kopieren veränderter Sandbox-Dateien ins Hauptrepo |
-| Snapshot | Gespeicherter Zustand zur Wiederherstellung |
-| Objectives | Zielvorgaben zur Steuerung von Analyse & Chat |
-| Diff Hint | Grober Hinweistext auf mögliche Änderungen |
-
-## Roadmap (Erweitert)
-| Idee | Nutzen | Status |
-|------|-------|--------|
-| Automatische Analyse nach Apply | Kontinuierliche Ziel-Refresher | Offen |
-| Diff-Synthese aus diff_hint | Schnellere vollständige Diffs | Teilweise (Helper vorhanden) |
-| Health Gate vor Promotion | Qualitätssicherung | Offen |
-| Parallele Sandboxen | Strategievergleich | Offen |
-| Persistente Chat-Tags | Bessere Historik-Suche | Offen |
-| Token/Latenz Metriken | Transparenz Performance | Offen |
-| Echte Streaming Tokens | UX flüssiger | Offen |
-| Test-Suite Grundstock | Stabilität | Offen |
-
----
 
 ## Nächste mögliche Ausbauten
 | Idee | Nutzen |

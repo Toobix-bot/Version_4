@@ -1,0 +1,13 @@
+Error: Invalid control character at: line 1 column 187 (char 186)
+RAW_JSON_CANDIDATE=
+[{"id":"p_tutorial_start","title":"Add beginner tutorial","description":"Short guide for first-time users","rationale":"Onboarding","filename":"TUTORIAL.md","content":"## Getting Started
+
+This is a simple guide for new users..."},{"id":"p_config_aliases","title":"Explain config file aliases","description":"Clarify common aliases in the config file","rationale":"Usability","filename":"CONFIG.md","content":"### Aliases
+
+The following aliases are commonly used..."}]
+FULL_RAW=
+[{"id":"p_tutorial_start","title":"Add beginner tutorial","description":"Short guide for first-time users","rationale":"Onboarding","filename":"TUTORIAL.md","content":"## Getting Started
+
+This is a simple guide for new users..."},{"id":"p_config_aliases","title":"Explain config file aliases","description":"Clarify common aliases in the config file","rationale":"Usability","filename":"CONFIG.md","content":"### Aliases
+
+The following aliases are commonly used..."}]

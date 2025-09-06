@@ -1,0 +1,42 @@
+[
+  {
+    "role": "user",
+    "content": "/multi.vote",
+    "ts": 1757177491.5946636
+  },
+  {
+    "role": "assistant",
+    "content": "Unbekannt: /multi.vote ( /help )",
+    "ts": 1757177491.5961273
+  },
+  {
+    "role": "user",
+    "content": "/reflect",
+    "ts": 1757177491.6010976
+  },
+  {
+    "role": "assistant",
+    "content": "Unbekannt: /reflect ( /help )",
+    "ts": 1757177491.6022706
+  },
+  {
+    "role": "user",
+    "content": "hi",
+    "ts": 1757177491.6067522
+  },
+  {
+    "role": "user",
+    "content": "/coach.on",
+    "ts": 1757177491.6174471
+  },
+  {
+    "role": "assistant",
+    "content": "Unbekannt: /coach.on ( /help )",
+    "ts": 1757177491.6190765
+  },
+  {
+    "role": "assistant",
+    "content": "Hi there! 👋  \n\nWhat can I do for you today? 😄",
+    "ts": 1757177493.8710713
+  }
+]

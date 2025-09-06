@@ -1,0 +1,17 @@
+Error: Invalid control character at: line 2 column 179 (char 180)
+RAW_JSON_CANDIDATE=
+[
+  {"id":"p_quickstart","title":"Add Quickstart Guide","description":"Short guide for getting started","rationale":"Onboarding","filename":"QUICKSTART.md","content":"## Quickstart
+
+This is a quick guide to get you started with the project..."},
+  {"id":"p_config_hints","title":"Add Configuration Hints","description":"Clarify common configuration options","rationale":"User Experience","filename":"CONFIG.md","content":"## Configuration Hints\n\nHere are some hints for configuring the project..."},
+  {"id":"p_faq","title":"Add Frequently Asked Questions","description":"Address common user queries","rationale":"Support","filename":"FAQ.md","content":"## Frequently Asked Questions\n\n**Q: What is this project?**\n\nA: ..." }
+]
+FULL_RAW=
+[
+  {"id":"p_quickstart","title":"Add Quickstart Guide","description":"Short guide for getting started","rationale":"Onboarding","filename":"QUICKSTART.md","content":"## Quickstart
+
+This is a quick guide to get you started with the project..."},
+  {"id":"p_config_hints","title":"Add Configuration Hints","description":"Clarify common configuration options","rationale":"User Experience","filename":"CONFIG.md","content":"## Configuration Hints\n\nHere are some hints for configuring the project..."},
+  {"id":"p_faq","title":"Add Frequently Asked Questions","description":"Address common user queries","rationale":"Support","filename":"FAQ.md","content":"## Frequently Asked Questions\n\n**Q: What is this project?**\n\nA: ..." }
+]

@@ -1,0 +1,87 @@
+# Version_4 – Groq Multi-Agent Evolutions-Sandbox
+
+Dieses Repository enthält ein Grundgerüst für einen experimentellen Multi-Agent Ansatz, der mit der Groq API (oder kompatiblen Chat-/Completion-Endpunkten) kleine evolutionäre Verbesserungszyklen durchführen kann. Ziel: Ein sicherer Loop, der Vorschläge (Patches) generiert, bewertet und erst nach manueller Freigabe anwendet.
+
+## Kernideen
+* Mehrere Rollen (System, Evolution, User-Proxy, Coder, Tester)
+* Speicher (Kurzzeit, Mittel, Langzeit – letztere optional mit Embeddings erweiterbar)
+* Strenger Governance-Pfad: Vorschlag → Bewertung → Approval → Anwendung
+* Keine direkten geheimen Schlüssel im Code; Nutzung von Umgebungsvariablen / `.env`
+* Erweiterbar um Retrieval, Reflexion, Ranking und Sicherheitsfilter
+
+## Verzeichnisstruktur
+```
+src/
+	core/
+		agents.py          # Agenten-Rollen & Basisklasse
+		models.py          # Dataklassen / Typstrukturen
+		memory.py          # Memory-Schichten (short/mid/long) – Long als Stub
+		retrieval.py       # Chunking + (zukünftiges) Ranking (Stub)
+		diffing.py         # Patch-Erstellung & Validierungs-Hooks (Stub)
+		governance.py      # Approval-/Policy-Logik
+		orchestrator.py    # Hauptloop (Simulation)
+	io/
+		config.py          # Config / Env Handling
+		groq_client.py     # API-Wrapper mit Retry & Streaming-Platzhalter
+run_simulation.py      # Einstiegspunkt
+tests/                 # Basistests / Stubs
+.env.example           # Beispiel-Umgebungsvariablen (ohne echten Key)
+requirements.txt       # Minimale Abhängigkeiten
+```
+
+## Schnellstart
+1. Python 3.10+ installieren.
+2. Virtuelle Umgebung anlegen (optional aber empfohlen).
+3. Abhängigkeiten installieren.
+4. `.env.example` kopieren zu `.env` und eigenen Schlüssel eintragen.
+5. Simulation starten.
+
+### Beispiel (PowerShell)
+```powershell
+python -m venv .venv
+./.venv/Scripts/Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env  # Dann API_KEY eintragen
+python run_simulation.py --cycles 1 --dry-run
+python scripts/check_env.py  # Prüft ob der Schlüssel korrekt geladen wurde
+```
+
+## Sicherheit & Geheimnisse
+* Niemals den echten API-Key committen.
+* `.env` in `.gitignore` (wird automatisch ergänzt – falls nicht, hinzufügen).
+* Vor Umsetzung echter Patch-Anwendungen zusätzliche Prüfungen (Lint, Tests) erweitern.
+
+## Nächste Ausbaustufen (Ideen)
+* Embedding-Store (FAISS / lokal) zur Langzeitkontextgewinnung
+* Bewertungs-Metriken (Nutzen, Risiko, Aufwand) mit Re-Ranking
+* Reflexionspass (Selbstkritik → zweite Iteration)
+* Web-UI (FastAPI + minimaler Frontend)
+* Multi-Repo-Unterstützung oder Monorepo-Scoping
+
+## Web API & Mini-Frontend
+Nach Installation kannst du die API + einfache Oberfläche starten:
+```powershell
+uvicorn src.api.app:app --port 8099
+```
+Öffne danach im Browser: http://127.0.0.1:8099
+
+Wichtige Endpunkte:
+| Methode | Pfad | Beschreibung |
+|---------|------|--------------|
+| POST | /cycle | Startet einen neuen Vorschlags-Durchlauf (nur Vorschau) |
+| GET  | /pending | Listet offene Vorschläge |
+| POST | /apply/{id} | Wendet einen Vorschlag an |
+| POST | /undo | Macht letzte Anwendung rückgängig (Backup) |
+| GET  | /health | Gesundheits-/Statuscheck |
+
+JSON Ausgabe für CLI: `python run_simulation.py --cycles 1 --json`
+
+## Haftungsausschluss
+Dieses Gerüst ist experimentell und führt (standardmäßig) keine destruktiven Operationen aus. Verantwortung für Einsatz & Sicherheit liegt beim Nutzer.
+
+---
+Viel Erfolg beim Erweitern! Siehe `run_simulation.py` für den Startpunkt.
+
+API_KEY=DEIN_KEY_HIER
+GROQ_MODEL=llama3-8b-instruct
+
