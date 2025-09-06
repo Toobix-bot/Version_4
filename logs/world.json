@@ -3,14 +3,14 @@
   "h": 6,
   "entities": [
     {
-      "id": "e258708",
+      "id": "e143835",
       "kind": "agent",
-      "x": 6,
-      "y": 3,
-      "energy": 0.8499999999999999,
-      "knowledge": 0.05,
-      "material": 0.0,
-      "exp": 0.075,
+      "x": 4,
+      "y": 1,
+      "energy": 0.9099999999999999,
+      "knowledge": 0.03,
+      "material": 0.005,
+      "exp": 0.045,
       "brain": "auto",
       "notes": []
     }

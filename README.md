@@ -1,5 +1,5 @@
 ## Überblick
-Dieses Projekt ist ein autonomer Evolutions- und Refactoring-Assistent für ein Code-Repository. Er generiert Verbesserungsvorschläge (Proposals) mittels LLM, bewertet sie, erlaubt Sandbox-Experimente in einem Klon (Twin), verwaltet Snapshots, berücksichtigt definierte Ziele (Objectives) und bietet ein Chat-Interface zur interaktiven Steuerung.
+Dieses Projekt ist ein autonomer Evolutions- und Refactoring-Assistent für ein Code-Repository. Er generiert Verbesserungsvorschläge (Proposals) mittels LLM (oder Fallback), bewertet sie, erlaubt Sandbox-Experimente (Twin), verwaltet Snapshots, beachtet Ziele (Objectives) und bietet Chat + REST API.
 
 ### Variante: go (Konfigurationsentscheidungen)
 Diese laufende Instanz folgt einer fokussierten Variante ("go") mit bewusst reduziertem Funktionsumfang für Klarheit & Testbarkeit:
@@ -17,33 +17,144 @@ Diese laufende Instanz folgt einer fokussierten Variante ("go") mit bewusst redu
 Zweck: Schnell stabile Kern-Loops (Objectives → Analyze → Proposal → Apply) + einfache Simulation etablieren, bevor komplexe soziale / multi-agent Features wieder aktiviert werden.
 
 ## Inhaltsverzeichnis
-1. Überblick
-2. Schneller Überblick (Quickstart)
-3. Voraussetzungen & Environment
-4. Architektur (Kurz)
-5. Twin / Sandbox Konzept
-6. Ziele & Analyse
-7. Chat Interface
-8. Erweiterte API Übersicht
-9. Tests & Qualität (geplant)
-10. Troubleshooting
-11. Contribution Guide
-12. Glossar
-13. Roadmap / Nächste Ausbauten
+1. Überblick / Variante
+2. Onboarding Konsolidiert (TL;DR → 5-Minuten → Groq & Rollen)
+3. First Win Ablauf
+4. Lifecycle Diagramm
+5. Betriebsmodi & Limits
+6. Sicherheit & Rollen
+7. Apply, Multi-File & Version History
+8. Häufige Fehler / FAQ
+9. Erweiterte Features (World, Twin, Snapshots)
+10. API Übersicht (Kurz)
+11. Tests & Qualität
+12. Contribution Guide
+13. Glossar
+14. Roadmap / Variante Matrix
 
-<!-- Quickstart Enhancement Start -->
-## Schneller Überblick (Quickstart)
-1. Umgebung anlegen: `python -m venv .venv`
-2. Aktivieren (PowerShell): `./.venv/Scripts/Activate.ps1`
-3. Abhängigkeiten: `pip install -r requirements.txt`
-4. Env vorbereiten: `copy .env.example .env` und Key eintragen
-5. Simulation (Test): `python run_simulation.py --cycles 1 --dry-run`
-6. Vorschlag anwenden: `python run_simulation.py --apply p1 --cycles 1`
-7. API starten: `uvicorn src.api.app:app --port 8099`
-8. Browser: http://127.0.0.1:8099 (Frontend optional wenn vorhanden)
+## 2. Onboarding (Konsolidiert)
 
-## Onboarding (Erste Schritte)
-Dieser Abschnitt führt dich in den ersten 10 Minuten zum ersten erfolgreichen Verbesserungsvorschlag.
+### 2.1 TL;DR (60 Sekunden)
+```powershell
+python -m venv .venv
+./.venv/Scripts/Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env   # GROQ_API_KEY optional
+python run_simulation.py --cycles 1 --dry-run
+uvicorn src.api.app:app --port 8099
+curl -X POST http://127.0.0.1:8099/objectives -H "Content-Type: application/json" -d '{"objectives":["Docs verbessern"]}'
+curl http://127.0.0.1:8099/analyze
+```
+
+### 2.2 5-Minuten Pfad (ohne LLM Key)
+1. Repo klonen & venv erstellen (siehe TL;DR)
+2. Dry-Run Zyklus: `python run_simulation.py --cycles 1 --dry-run`
+3. Server: `uvicorn src.api.app:app --port 8099 --reload`
+4. Ziele setzen & Analyse (curl s.o.)
+5. Erste Idee injizieren: `POST /inject-proposal`
+6. Pending prüfen: `GET /proposals/pending`
+7. Apply (Fallback erzeugt einfache Platzhalter-Diffs)
+8. Änderungen ansehen: `GET /versions` (Version History)
+
+### 2.3 Optional: Echt mit Groq
+`.env` erweitern:
+```
+GROQ_API_KEY=dein_key
+API_KEY=mein_admin_key
+```
+Jetzt liefert Analyse / Evolution echte LLM-Vorschläge. Schreib-Endpunkte (Apply, Undo, Inject) mit `X-API-Key` Header.
+
+### 2.4 Beispielskript
+```powershell
+python examples/quick_start_example.py
+```
+Mit automatischem Apply (nur Demo):
+```powershell
+$env:APPLY_EXAMPLE="1"; python examples/quick_start_example.py
+```
+Ausgabe (gekürzt):
+```
+[HTTP] Setting objectives...
+[HTTP] Running analysis...
+[HTTP] Injecting first suggestion as proposal...
+```
+
+### 2.5 Diff Hint Hinweis
+**diff_hint ist nur ein heuristischer Hinweis – nicht zwingend ein vollständiger Patch.** Finale Diffs entstehen durch den Evolutionsprozess oder manuelle Anpassung.
+
+---
+
+## 3. First Win Ablauf
+1. Ziele setzen
+2. `/analyze` ausführen
+3. Ersten Vorschlag injizieren (`/inject-proposal`)
+4. Pending prüfen `/proposals/pending`
+5. Preview `/proposals/preview/{id}`
+6. Apply `/proposals/apply` (Header falls Key gesetzt)
+7. Version History prüfen `/versions`
+8. Re-Analyse → nächste Iteration
+
+## 4. Lifecycle Diagramm
+```
+Objectives -> /analyze -> Suggestions -> /inject-proposal -> Pending
+	-> /proposals/preview -> /proposals/apply -> Version History (/versions)
+	-> (optional undo) -> Re-Analyze Loop
+```
+
+## 5. Betriebsmodi & Limits
+| Modus | Voraussetzung | Verhalten |
+|-------|--------------|-----------|
+| Offline (Fallback) | Kein GROQ_API_KEY | Platzhalter / einfache Vorschläge |
+| Online (LLM) | GROQ_API_KEY gesetzt | Echte Modellantworten |
+| Read-Only Token | Token Rolle read | Keine Schreib-Endpunkte |
+| Write | Rolle write | Apply/Undo/Inject erlaubt |
+| Admin | Rolle admin | plus evtl. zukünftige Wartung |
+
+Limits (Variante go):
+* Analyse: max 3s / 100 Dateien
+* Rate Limit: `RATE_LIMIT_PER_MIN` global & per-IP Soft-Gate
+* Chat History: 60 Einträge
+
+## 6. Sicherheit & Rollen
+Env Optionen:
+```
+API_KEY=<legacy_einzel_key>
+API_TOKENS=k1:read,k2:write,k3:admin
+```
+Ohne `API_TOKENS` gilt `API_KEY` als Admin. Mit Mapping werden Rollen erzwungen.
+Fehlercodes: `ERR_INVALID_KEY`, `ERR_FORBIDDEN`, `ERR_POLICY_VIOLATION`.
+
+## 7. Apply, Multi-File & Version History
+* Multi-File Diff: Jeder `+++ b/<file>` Block wird separat gepatcht & gesichert.
+* Backups: `.backup_<file>_<proposal>.txt`
+* Version History: `logs/version_history.jsonl` + Endpoint `/versions` (neueste zuerst)
+* Changelog: Aggregierte Kurzzeilen in `CHANGELOG.md`
+
+## 8. Häufige Fehler / FAQ
+| Symptom | Ursache | Lösung |
+|---------|---------|-------|
+| Keine Vorschläge | Keine Objectives gesetzt | `POST /objectives` |
+| 401 / 403 | Kein/zu schwacher Token | Passenden Key im Header `X-API-Key` |
+| 429 | Rate Limit erreicht | Warten oder `RATE_LIMIT_PER_MIN` erhöhen |
+| Leere Diff Vorschau | Platzhalter / diff_hint nur Hinweis | Evolution erneut oder manuell anpassen |
+| Kein LLM Output | Kein GROQ_API_KEY | Key setzen + `/groq-check` |
+| Undo ohne Effekt | Keine Anwendung zuvor | Erst Apply durchführen |
+
+---
+
+## 9. Erweiterte Features (Kurzüberblick)
+| Feature | Nutzen | Abschnitt |
+|---------|-------|-----------|
+| Twin / Sandbox | Isolierte Experimente | Siehe weiter unten „Twin / Klon System“ |
+| Snapshots | Zeitreise / Restore | Snapshot Abschnitt |
+| World Simulation | Ressourcen-Spielraum / experimentell | World Kommandos |
+| Knowledge Base | Persistente Notizen / Snippets | `/kb.*` |
+
+Details weiterhin unten unverändert belassen (verschoben aus Onboarding).
+
+---
+
+## (Vorherige Onboarding / Quickstart Sektionen wurden konsolidiert – Altinhalt weiter unten ausgelassen oder eingekürzt.)
 
 ### 1. Umgebung bereitstellen
 Siehe Quickstart Schritte 1–4. Prüfe mit:
@@ -95,12 +206,7 @@ POST /undo
 ### 7. Erneute Analyse (Feedback Loop)
 Nach Apply erneut `/analyze` ausführen um neue Optimierungsmöglichkeiten basierend auf geändertem Zustand zu erhalten.
 
-### Häufige Stolpersteine
-| Problem | Hinweis |
-|---------|---------|
-| Keine Vorschläge | Noch keine Ziele gesetzt → `/objectives.set` |
-| Diff wirkt leer | diff_hint ist nur ein Hinweis – richtige Diff entsteht erst durch Evolution/Manuell |
-| Apply Fehler | Prüfe `preview` und Dateipfade; manche generierten Diffs können ggf. angepasst werden |
+### (Hinweis: Frühere Liste „Häufige Stolpersteine“ integriert in FAQ.)
 
 ### Häufig genutzte Chat-Kommandos
 | Kommando | Zweck |
@@ -364,6 +470,8 @@ UI: Button "→ Proposal" im Chat-Panel konvertiert automatisch die letzte Assis
 | POST | /undo | Letzte Anwendung rückgängig |
 | GET | /preview/{id} | Unified Diff eines Vorschlags |
 | GET | /health | Basis-Health |
+| GET | /help | Befehlsübersicht |
+| GET | /versions | Version History |
 | GET | /groq-check | Testet Groq-Verfügbarkeit |
 | POST | /llm/raw | Rohprompt an aktuelles Modell |
 | POST | /objectives | Ziele setzen |
@@ -379,18 +487,41 @@ UI: Button "→ Proposal" im Chat-Panel konvertiert automatisch die letzte Assis
 | POST | /snapshot/create | Snapshot speichern |
 | GET | /snapshot/list | Snapshot-Liste |
 | POST | /snapshot/restore/{id} | Snapshot wiederherstellen |
+| GET | /help | Befehlsübersicht / Detailhilfe |
+| GET | /versions | Version History (letzte Änderungen) |
 
-## Tests & Qualität (Geplant)
-Aktuell keine produktiven Tests eingebracht. Vorgesehene Toolchain:
-* pytest – Unit/Integration Tests
-* ruff – Linting
-* mypy – Typprüfung
-* black / isort – Format / Imports
+### Multi-File Apply
+Proposals können mehrere Dateien in einem Unified Diff enthalten. Alle Segmente (`+++ b/<file>`) werden erkannt, gesichert (Backup) und angewendet. Backups liegen als `.backup_<file>_<proposal>.txt` im Repo Root.
 
-### Aktuelle Minimaltests (Variante go)
-Enthaltene Tests:
-* `tests/test_world_resources.py` – prüft Wachstum & Caps der Welt-Ressourcen
-* `tests/test_analysis_limits.py` – prüft Sampling-Limit (<=100 Dateien) & einfache Analyse-Rückgabe
+### Version History
+Jede erfolgreiche Anwendung schreibt einen JSON Zeileintrag nach `logs/version_history.jsonl`:
+```
+{"ts": 1725600000.12, "proposal": "p42", "file": "README.md", "sha": "abcd1234ef...", "cycle": 7}
+```
+Abruf: `GET /versions?limit=50` (neueste zuerst).
+
+### Rollen & Tokens
+Optional per Env:
+```
+API_TOKENS=k1:read,k2:write,k3:admin
+```
+Schreib-/Apply-Endpunkte verlangen mindestens `write`. Ohne Mapping + gesetzt `API_KEY` => Single-Key Admin.
+
+### Fehlerformat (Erweitert)
+Globale Fehler liefern `{error, detail, path, code?}` – mögliche `code` Werte: `ERR_INVALID_KEY`, `ERR_FORBIDDEN`, `ERR_POLICY_VIOLATION`.
+
+### Hilfe Endpoint
+`GET /help` für Kategorien, `GET /help?cmd=analyze` für Einzelbefehl.
+
+## Tests & Qualität
+Aktuell implementiert:
+* `tests/test_world_resources.py`
+* `tests/test_analysis_limits.py`
+* `tests/test_health_and_rate_limit.py`
+* `tests/test_world_commands.py`
+* `tests/test_versions_and_help.py`
+
+Geplante Ergänzungen: Lint (ruff), Typen (mypy), Coverage Report, AST-Metriken.
 
 Ausführen (im aktivierten venv):
 ```
@@ -456,17 +587,37 @@ LLM Prompt-Anpassungen: In GroqClient oder beim Zusammenbau der Nachrichten; Obj
 | Objectives | Zielvorgaben zur Steuerung von Analyse & Chat |
 | Diff Hint | Grober Hinweistext auf mögliche Änderungen |
 
-## Roadmap (Erweitert)
-| Idee | Nutzen | Status |
-|------|-------|--------|
-| Automatische Analyse nach Apply | Kontinuierliche Ziel-Refresher | Offen |
-| Diff-Synthese aus diff_hint | Schnellere vollständige Diffs | Teilweise (Helper vorhanden) |
-| Health Gate vor Promotion | Qualitätssicherung | Offen |
-| Parallele Sandboxen | Strategievergleich | Offen |
-| Persistente Chat-Tags | Bessere Historik-Suche | Offen |
-| Token/Latenz Metriken | Transparenz Performance | Offen |
-| Echte Streaming Tokens | UX flüssiger | Offen |
-| Test-Suite Grundstock | Stabilität | Offen |
+## Roadmap & Variante Matrix
+| Bereich | Nächster Schritt | Status |
+|--------|------------------|--------|
+| Analyse | Automatische Re-Analyse nach Apply | Offen |
+| Diff | Diff-Synthese aus diff_hint | Teilweise |
+| Qualität | Health Gate vor Promotion | Offen |
+| Sandbox | Parallele Sandboxen | Offen |
+| Chat | Persistente Tags | Offen |
+| Metriken | Token / Latenz Reporting | Offen |
+| UX | Streaming Tokens | Offen |
+| Tests | Ausbau Suite | Laufend |
+
+Variante go aktiv/inaktiv:
+| Kategorie | Status |
+|-----------|--------|
+| System | Aktiv |
+| Ziele | Aktiv |
+| Analyse | Aktiv |
+| World | Aktiv |
+| Improve | Aktiv |
+| Knowledge | Aktiv |
+| Personas | Deaktiviert |
+| Multi / Kollaboration | Deaktiviert |
+| Reflexion (erweitert) | Deaktiviert (Basis intern) |
+| User Modeling | Deaktiviert |
+| Notebook | Deaktiviert |
+| Energy (separate Kategorie) | Deaktiviert |
+| Self / Coach | Deaktiviert |
+
+---
+Stand: Konsolidiertes Onboarding aktiv. Für Feedback / Erweiterungswünsche Issues oder Objectives setzen.
 
 ---
 

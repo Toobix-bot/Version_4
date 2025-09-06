@@ -35,6 +35,25 @@ snaps = SnapshotManager(repo_root=repo_root)
 import os
 API_KEY_REQUIRED = os.environ.get('API_KEY') or ''
 RATE_LIMIT_PER_MIN = int(os.environ.get('RATE_LIMIT_PER_MIN', '120'))  # global simple limit
+# Role mapping env: API_TOKENS="k1:read,k2:write,k3:admin"
+_RAW_TOKEN_MAP = os.environ.get('API_TOKENS','').strip()
+TOKEN_ROLES: Dict[str,str] = {}
+if _RAW_TOKEN_MAP:
+    for part in _RAW_TOKEN_MAP.split(','):
+        if ':' in part:
+            token, role = part.split(':',1)
+            token = token.strip(); role = role.strip().lower()
+            if token:
+                TOKEN_ROLES[token] = role or 'read'
+
+def _resolve_role(token: str | None) -> str:
+    if not TOKEN_ROLES:
+        if API_KEY_REQUIRED and token == API_KEY_REQUIRED:
+            return 'admin'
+        return 'public'
+    if token and token in TOKEN_ROLES:
+        return TOKEN_ROLES[token]
+    return 'public'
 
 # --- Simple in-memory rate limiter (global & per-IP) --- #
 _rl_lock = threading.Lock()
@@ -58,8 +77,11 @@ def _rate_limit_allow(ip: str) -> bool:
             return False
         return True
 
+from typing import Callable, Awaitable
+from starlette.responses import Response
+
 @app.middleware('http')
-async def rate_limit_middleware(request: Request, call_next):  # pragma: no cover (best effort)
+async def rate_limit_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]):  # pragma: no cover (best effort)
     ip = request.client.host if request.client else 'unknown'
     # read current value dynamically (tests may patch RATE_LIMIT_PER_MIN)
     limit = globals().get('RATE_LIMIT_PER_MIN', 0)
@@ -77,15 +99,30 @@ async def rate_limit_middleware(request: Request, call_next):  # pragma: no cove
         return JSONResponse(status_code=500, content={'error':'internal_error','detail':str(e)[:300]})
 
 # --- Structured exception handler --- #
+class ErrorCodes:
+    INVALID_KEY = 'ERR_INVALID_KEY'
+    FORBIDDEN = 'ERR_FORBIDDEN'
+    POLICY = 'ERR_POLICY_VIOLATION'
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):  # pragma: no cover
-    return JSONResponse(status_code=500, content={'error':'exception','detail':str(exc)[:300],'path':str(request.url.path)})
+    payload = {'error':'exception','detail':str(exc)[:300],'path':str(request.url.path)}
+    if 'policy' in str(exc).lower():
+        payload['code'] = ErrorCodes.POLICY
+    return JSONResponse(status_code=500, content=payload)
 
-def api_key_guard(x_api_key: str | None = Header(default=None)):
-    if not API_KEY_REQUIRED:
+def api_key_guard(x_api_key: str | None = Header(default=None), required: str = 'write'):
+    # required: read|write|admin
+    role = _resolve_role(x_api_key)
+    hierarchy = {'public':0,'read':1,'write':2,'admin':3}
+    need = hierarchy.get(required,1)
+    have = hierarchy.get(role,0)
+    if API_KEY_REQUIRED and not TOKEN_ROLES:  # legacy single key mode
+        if x_api_key != API_KEY_REQUIRED:
+            raise HTTPException(status_code=401, detail={"code":ErrorCodes.INVALID_KEY,"msg":"invalid or missing API key"})
         return True
-    if x_api_key != API_KEY_REQUIRED:
-        raise HTTPException(status_code=401, detail="invalid or missing API key")
+    if have < need:
+        raise HTTPException(status_code=403, detail={"code":ErrorCodes.FORBIDDEN,"msg":"insufficient role","need":required,"have":role})
     return True
 class PersonaDict(TypedDict):
     id: str
@@ -333,6 +370,30 @@ def _help_text(cmd: str | None = None) -> str:
     }
     hint = examples.get(c, f"/{c}")
     return f"/{c}: {desc}\nBeispiel: {hint}"
+
+# --- HTTP Help & Version History --- #
+from fastapi import Query
+import json as _json
+
+@app.get('/help')
+def http_help(cmd: str | None = None):
+    return {'help': _help_text(cmd)}
+
+from typing import List as _List, Dict as _Dict, Any as _Any
+
+@app.get('/versions')
+def version_history(limit: int = Query(50, ge=1, le=500)) -> _List[_Dict[str, _Any]]:
+    path = repo_logs / 'version_history.jsonl'
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding='utf-8').strip().splitlines()[-limit:]
+    out: _List[_Dict[str, _Any]] = []
+    for ln in lines:
+        try:
+            out.append(_json.loads(ln))
+        except Exception:
+            pass
+    return list(reversed(out))
 
 def _legacy_logic(cmd: str, arg: str) -> str | None:  # trimmed set
     try:
@@ -743,7 +804,6 @@ class HealthResp(BaseModel):
 
 @app.get('/health', response_model=HealthResp)
 async def health():
-    from ..core.variant import VARIANT as _V
     return HealthResp(status='ok', cycle=orch.state.cycle, objectives=len(orch.state.objectives), pending=len(orch.list_pending()), variant='go', rate_limit=RATE_LIMIT_PER_MIN)
 
 @app.get('/chat')
@@ -969,3 +1029,20 @@ class UndoResp(BaseModel):
 async def proposal_undo():
     res = orch.undo_last()
     return UndoResp(undone=bool(res), id=res)
+
+# --- Legacy simple apply endpoint (compat) --- #
+class LegacyApplyResp(BaseModel):
+    applied: bool
+    id: str | None = None
+    result: str | None = None
+    error: str | None = None
+
+@app.post('/apply/{proposal_id}', response_model=LegacyApplyResp)
+async def legacy_apply(proposal_id: str, x_api_key: str | None = Header(default=None)):
+    # honour role guard (write)
+    api_key_guard(x_api_key, required='write')
+    try:
+        file_or_msg = orch.apply_after_approval(proposal_id, dry_run=False)
+    except Exception as e:  # pragma: no cover
+        return JSONResponse(status_code=400, content={'applied': False, 'id': proposal_id, 'error': str(e)[:300]})
+    return LegacyApplyResp(applied=True, id=proposal_id, result=file_or_msg)

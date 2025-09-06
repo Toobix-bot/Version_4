@@ -5,3 +5,4 @@
 - Applied p_arch -> ARCHITECTURE.md
 - Applied p_roadmap -> ROADMAP.md
 - Applied p_testing -> TESTING.md
+- Applied pMF -> DUMMY1.md, DUMMY2.md

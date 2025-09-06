@@ -1,18 +1,1 @@
-[
-  {
-    "id": "p_readme",
-    "title": "Update README",
-    "description": "Add a brief description of the project's purpose and key features.",
-    "rationale": "Improve project discoverability and understanding.",
-    "filename": "README.md",
-    "content": "# Project Name\n\nThis project aims to [briefly describe the project's purpose]. It provides [list key features].\n\n[Add links to documentation, installation instructions, etc.]"
-  },
-  {
-    "id": "p_contributing",
-    "title": "Add Contributing Guide",
-    "description": "Outline how others can contribute to the project.",
-    "rationale": "Encourage community involvement and improve maintainability.",
-    "filename": "CONTRIBUTING.md",
-    "content": "# Contributing\n\nWe welcome contributions of all kinds! Here's how to get started:\n\n[Steps for contributing, e.g., issue reporting, code submission, testing guidelines]"
-  }
-]
+[{"id":"p_readme","title":"Update README with contribution guidelines","description":"Add a section for contributing to the project.","rationale":"Encourage community involvement.","filename":"README.md","content":"## Contributing\n\nWe welcome contributions from the community! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute."},{"id":"p_faq","title":"Create FAQ section","description":"Address common questions about the project.","rationale":"Improve user experience and reduce support requests.","filename":"FAQ.md","content":"## Frequently Asked Questions\n\n**Q: What is this project?**\n\nA: [Project description]\n\n**Q: How do I get started?**\n\nA: [Instructions on how to use the project]"}]

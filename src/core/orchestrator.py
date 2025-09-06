@@ -5,7 +5,7 @@ import json
 from .models import WorldState, Message, PatchProposal
 from .agents import EvolutionAgent, ScoringAgent
 from .governance import ApprovalGate
-from .diffing import apply_patch, validate_diff_security, extract_touched_files
+from .diffing import apply_patch, validate_diff_security
 from .logging_utils import JsonLogger, lightweight_changelog
 
 
@@ -64,42 +64,82 @@ class Orchestrator:
         proposal = self.approve(proposal_id)
         diff = proposal.diff
         validate_diff_security(diff)
-        touched = list(extract_touched_files(diff))
-        if not touched:
-            return "(kein Dateiinhalt im Diff / nichts anzuwenden)"
-        filename = touched[0]
-        new_lines: List[str] = []
+        # --- Multi-File Diff Verarbeitung --- #
+        segments: List[tuple[str, List[str]]] = []  # (filename, diff_lines)
+        current_file: str | None = None
+        current_lines: List[str] = []
         for line in diff.splitlines():
-            if line.startswith("+++ ") or line.startswith("--- "):
+            if line.startswith("+++ b/"):
+                if current_file is not None:
+                    segments.append((current_file, current_lines))
+                current_file = line[6:].strip()
+                current_lines = []
+                continue
+            # ignore header markers and hunk headers, collect rest
+            if line.startswith("--- a/"):
                 continue
             if line.startswith("@@"):
                 continue
-            if line.startswith("+") and not line.startswith("+++"):
-                new_lines.append(line[1:])
-            elif line.startswith("-"):
-                continue
-            else:
-                new_lines.append(line)
-        new_content = "\n".join(l.rstrip() for l in new_lines).strip() + "\n"
-        # Backup handling
-        proposal_backups = []
-        target = self.repo_root / filename
-        if target.exists():
-            original = target.read_text(encoding="utf-8", errors="ignore")
-            backup_path = self.repo_root / f".backup_{filename.replace('/', '_')}_{proposal.id}.txt"
-            backup_path.write_text(original, encoding="utf-8")
-            proposal_backups.append({"file": filename, "path": str(backup_path), "original_exists": True})
-        else:
-            proposal_backups.append({"file": filename, "path": None, "original_exists": False})
+            if current_file is not None:
+                current_lines.append(line)
+        if current_file is not None:
+            segments.append((current_file, current_lines))
+        if not segments:
+            return "(kein Dateiinhalt im Diff / nichts anzuwenden)"
+
+        from typing import Dict as _Dict, Any as _Any
+        proposal_backups: List[_Dict[str, _Any]] = []
+        applied_files: List[str] = []
+
+        def _reconstruct(lines: List[str]) -> str:
+            new_lines: List[str] = []
+            for ln in lines:
+                if ln.startswith("+") and not ln.startswith("+++"):
+                    new_lines.append(ln[1:])
+                elif ln.startswith("-"):
+                    continue
+                else:
+                    new_lines.append(ln)
+            return "\n".join(l.rstrip() for l in new_lines).strip() + "\n"
+
+        import hashlib, time as _t
+        version_log_path = self.repo_root / 'logs' / 'version_history.jsonl'
+        version_log_path.parent.mkdir(exist_ok=True)
         if not dry_run:
-            apply_patch(self.repo_root, filename, new_content)
             self.state.accepted_patches.append(proposal.id)
+        for fname, lines in segments:
+            target = self.repo_root / fname
+            if target.exists():
+                original = target.read_text(encoding='utf-8', errors='ignore')
+                backup_path = self.repo_root / f".backup_{fname.replace('/', '_')}_{proposal.id}.txt"
+                try:
+                    backup_path.write_text(original, encoding='utf-8')
+                except Exception:
+                    pass
+                proposal_backups.append({"file": fname, "path": str(backup_path), "original_exists": True})
+            else:
+                proposal_backups.append({"file": fname, "path": None, "original_exists": False})
+            if not dry_run:
+                new_content = _reconstruct(lines)
+                apply_patch(self.repo_root, fname, new_content)
+                sha = hashlib.sha256(new_content.encode('utf-8', errors='ignore')).hexdigest()[:16]
+                # Version History Eintrag
+                try:
+                    with version_log_path.open('a', encoding='utf-8') as vf:
+                        import json as _j
+                        rec: _Dict[str, _Any] = {"ts": _t.time(), "proposal": proposal.id, "file": fname, "sha": sha, "cycle": self.state.cycle}
+                        vf.write(_j.dumps(rec, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+                applied_files.append(fname)
+        if not dry_run:
             self.state.backups[proposal.id] = proposal_backups
-            lightweight_changelog(self.repo_root, f"Applied {proposal.id} -> {filename}")
-            self.logger.write({"event": "apply", "id": proposal.id, "file": filename})
+            if applied_files:
+                lightweight_changelog(self.repo_root, f"Applied {proposal.id} -> {', '.join(applied_files)}")
+            self.logger.write({"event": "apply", "id": proposal.id, "files": applied_files})
             self._save_state()
-            return filename
-        return f"(dry-run) {filename}"
+            return ', '.join(applied_files)
+        return f"(dry-run) {', '.join(f for f,_ in segments)}"
 
     def preview(self, proposal_id: str) -> str:
         for p in self.approvals.pending:
@@ -118,7 +158,8 @@ class Orchestrator:
             if info.get("original_exists") and path:
                 try:
                     original_content = Path(path).read_text(encoding="utf-8")
-                    apply_patch(self.repo_root, file, original_content)
+                    if isinstance(file, str):
+                        apply_patch(self.repo_root, file, original_content)
                 except Exception:
                     pass
             else:
