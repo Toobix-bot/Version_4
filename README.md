@@ -218,6 +218,7 @@ Nach Apply erneut `/analyze` ausführen um neue Optimierungsmöglichkeiten basie
 | /kb.list | Knowledge Einträge anzeigen |
 | /kb.save | Letzte Assistant Nachricht speichern |
 | /world.init 20 12 | 2D Welt initialisieren (Breite=20, Höhe=12) |
+| GET /world/state | JSON Snapshot (w,h,ticks, controlled, first entities) |
 | /world.spawn agent alpha | Entity erzeugen |
 | /world.tick 5 | Welt 5 Schritte simulieren |
 | /world.ents | Entities auflisten |
