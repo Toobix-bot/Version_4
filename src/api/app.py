@@ -614,6 +614,18 @@ def _legacy_logic(cmd: str, arg: str) -> str | None:  # trimmed set
             return sim_world.move(dx,dy)
         if cmd == 'world.info':
             return sim_world.world_info()
+        if cmd == 'world.state':
+            # Lightweight summary (first 50 entities)
+            st = {
+                'w': sim_world.STATE.get('w'),
+                'h': sim_world.STATE.get('h'),
+                'ticks': sim_world.STATE.get('ticks'),
+                'controlled': sim_world.STATE.get('controlled'),
+                'entities': [e for e in sim_world.STATE.get('entities',[])[:50]],
+                'entities_total': len(sim_world.STATE.get('entities',[])),
+            }
+            import json as _json
+            return _json.dumps(st, ensure_ascii=False)
     except Exception as e:  # pragma: no cover
         return f'Command Fehler: {e}'[:200]
     return None
