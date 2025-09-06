@@ -1,86 +1,6 @@
 [
   {
     "role": "user",
-    "content": "Welche Qualitäts- oder Sicherheitslücke ist aktuell am größten? Antworte kurz.",
-    "ts": 1757190957.462405
-  },
-  {
-    "role": "assistant",
-    "content": "Fehlende Sicherheitshinweise.",
-    "ts": 1757190957.8857214
-  },
-  {
-    "role": "user",
-    "content": "Welche Qualitäts- oder Sicherheitslücke ist aktuell am größten? Antworte kurz.",
-    "ts": 1757190960.1724477
-  },
-  {
-    "role": "assistant",
-    "content": "Unklare Onboarding-Dokumentation.",
-    "ts": 1757190960.5884316
-  },
-  {
-    "role": "user",
-    "content": "Welche Qualitäts- oder Sicherheitslücke ist aktuell am größten? Antworte kurz.",
-    "ts": 1757190962.7879503
-  },
-  {
-    "role": "assistant",
-    "content": "Fehlende Sicherheitshinweise.",
-    "ts": 1757190963.1531677
-  },
-  {
-    "role": "user",
-    "content": "/meta",
-    "ts": 1757190978.6048942
-  },
-  {
-    "role": "assistant",
-    "content": "Cycle=62 Pending=3 TwinChanged=2 Snapshots=0 Objectives=1",
-    "ts": 1757190978.6226773
-  },
-  {
-    "role": "user",
-    "content": "/pending",
-    "ts": 1757190982.9960403
-  },
-  {
-    "role": "assistant",
-    "content": "Pending: p_readme_update:Update README.md, p_contributing_guide:Add Contributing G, p_config_hints:Add Configuration ",
-    "ts": 1757190982.9975486
-  },
-  {
-    "role": "user",
-    "content": "/cycle",
-    "ts": 1757190986.70794
-  },
-  {
-    "role": "assistant",
-    "content": "Command Fehler: File 'LICENSE' not allowed by policy.",
-    "ts": 1757190987.805711
-  },
-  {
-    "role": "user",
-    "content": "/help",
-    "ts": 1757191290.2948055
-  },
-  {
-    "role": "assistant",
-    "content": "Befehle (Kategorien):\n[System] /meta /cycle /pending /apply /diff /undo /twin.changed /snapshot.list\n[Ziele] /objectives.list /objectives.set\n[Knowledge] /kb.save /kb.list /kb.search /kb.get /kb.inject\n[Analyse] /analyze /analysis.last\n[World] /world.init /world.spawn /world.tick /world.ents /world.ctrl /world.move /world.info /world.state\n[Improve] /improve.scan\n/help <cmd> für Detail",
-    "ts": 1757191290.2964928
-  },
-  {
-    "role": "user",
-    "content": "​/help",
-    "ts": 1757191290.3168225
-  },
-  {
-    "role": "assistant",
-    "content": "Befehle (Kategorien):\n[System] /meta /cycle /pending /apply /diff /undo /twin.changed /snapshot.list\n[Ziele] /objectives.list /objectives.set\n[Knowledge] /kb.save /kb.list /kb.search /kb.get /kb.inject\n[Analyse] /analyze /analysis.last\n[World] /world.init /world.spawn /world.tick /world.ents /world.ctrl /world.move /world.info /world.state\n[Improve] /improve.scan\n/help <cmd> für Detail",
-    "ts": 1757191290.3184693
-  },
-  {
-    "role": "user",
     "content": "/unknownzzz",
     "ts": 1757191290.336554
   },
@@ -298,5 +218,85 @@
     "role": "assistant",
     "content": "Tick 5 -> T=5",
     "ts": 1757191528.2508187
+  },
+  {
+    "role": "user",
+    "content": "/help",
+    "ts": 1757192034.6582506
+  },
+  {
+    "role": "assistant",
+    "content": "Befehle (Kategorien):\n[System] /meta /cycle /pending /apply /diff /undo /twin.changed /snapshot.list\n[Ziele] /objectives.list /objectives.set\n[Knowledge] /kb.save /kb.list /kb.search /kb.get /kb.inject\n[Analyse] /analyze /analysis.last\n[World] /world.init /world.spawn /world.tick /world.ents /world.ctrl /world.move /world.info /world.state\n[Improve] /improve.scan\n/help <cmd> für Detail",
+    "ts": 1757192034.6607268
+  },
+  {
+    "role": "user",
+    "content": "​/help",
+    "ts": 1757192034.6731086
+  },
+  {
+    "role": "assistant",
+    "content": "Befehle (Kategorien):\n[System] /meta /cycle /pending /apply /diff /undo /twin.changed /snapshot.list\n[Ziele] /objectives.list /objectives.set\n[Knowledge] /kb.save /kb.list /kb.search /kb.get /kb.inject\n[Analyse] /analyze /analysis.last\n[World] /world.init /world.spawn /world.tick /world.ents /world.ctrl /world.move /world.info /world.state\n[Improve] /improve.scan\n/help <cmd> für Detail",
+    "ts": 1757192034.6766653
+  },
+  {
+    "role": "user",
+    "content": "/unknownzzz",
+    "ts": 1757192034.6907322
+  },
+  {
+    "role": "assistant",
+    "content": "Unbekannt: /unknownzzz ( /help )",
+    "ts": 1757192034.6924095
+  },
+  {
+    "role": "user",
+    "content": "/world.init 12 8",
+    "ts": 1757192038.7417629
+  },
+  {
+    "role": "assistant",
+    "content": "World init 12x8.",
+    "ts": 1757192038.7438083
+  },
+  {
+    "role": "user",
+    "content": "/world.spawn agent",
+    "ts": 1757192038.7538216
+  },
+  {
+    "role": "assistant",
+    "content": "Spawned e38755 (agent).",
+    "ts": 1757192038.7559276
+  },
+  {
+    "role": "user",
+    "content": "/world.info",
+    "ts": 1757192038.764755
+  },
+  {
+    "role": "assistant",
+    "content": "World 12x8 ticks=0 ents=1 ctrl=- variant=go",
+    "ts": 1757192038.7700293
+  },
+  {
+    "role": "user",
+    "content": "/world.ents",
+    "ts": 1757192038.7807307
+  },
+  {
+    "role": "assistant",
+    "content": "e38755:agent@6,0 E=1.00 K=0.00 M=0.00 X=0.00",
+    "ts": 1757192038.783701
+  },
+  {
+    "role": "user",
+    "content": "/world.tick 5",
+    "ts": 1757192038.7897906
+  },
+  {
+    "role": "assistant",
+    "content": "Tick 5 -> T=5",
+    "ts": 1757192038.79184
   }
 ]

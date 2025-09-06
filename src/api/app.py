@@ -1,6 +1,7 @@
 from __future__ import annotations
 from fastapi import FastAPI
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request, Security
+from fastapi.security.api_key import APIKeyHeader
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,12 +15,29 @@ from ..core.twin import TwinCoordinator, SnapshotManager
 from ..core.analysis import analyze_repository
 from ..core import indexer as code_index
 import time, asyncio, threading
+try:  # optional dependency
+    from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST  # type: ignore
+except Exception:  # fallback stubs
+    class _Dummy:
+        def __init__(self,*a,**k): pass
+        def labels(self,*a,**k): return self
+        def inc(self,*a,**k): return None
+        def set(self,*a,**k): return None
+        def observe(self,*a,**k): return None
+    Counter = Histogram = Gauge = _Dummy  # type: ignore
+    def generate_latest(): return b''  # type: ignore
+    CONTENT_TYPE_LATEST = 'text/plain'
 try:
     from anyio import to_thread
 except Exception:  # fallback if anyio import pattern changes
     to_thread = None  # type: ignore
 
-app = FastAPI(title="Evolution Sandbox API", version="0.1.1")
+app = FastAPI(
+    title="Evolution Sandbox API",
+    version="0.1.2",
+    description="Autonomous evolution sandbox with proposal lifecycle, indexing, and PR-safe apply mode.",
+    contact={"name":"Evolution Sandbox"},
+)
 # CORS for local dev / browser testing
 app.add_middleware(
     CORSMiddleware,
@@ -61,6 +79,12 @@ _rl_lock = threading.Lock()
 _rl_window_start = time.time()
 _rl_global_count = 0
 _rl_ip_counts: Dict[str,int] = {}
+# Prometheus metrics definitions
+_rl_hits_counter = Counter('rate_limit_hits_total','Rate limit rejections')  # type: ignore
+_errors_5xx_counter = Counter('errors_5xx_total','Unhandled 5xx responses')  # type: ignore
+_apply_counter = Counter('apply_requests_total','Apply attempts', ['mode'])  # type: ignore
+_analyze_histogram = Histogram('analyze_duration_seconds','Analyze duration seconds')  # type: ignore
+_pending_proposals_gauge = Gauge('pending_proposals','Pending proposals count')  # type: ignore
 
 def _rate_limit_allow(ip: str) -> bool:
     global _rl_window_start, _rl_global_count
@@ -91,12 +115,19 @@ async def rate_limit_middleware(request: Request, call_next: Callable[[Request],
         limit = 0
     if isinstance(limit, int) and limit > 0:
         if not _rate_limit_allow(ip):
+            try: _rl_hits_counter.inc()
+            except Exception: pass
             return JSONResponse(status_code=429, content={'error':'rate_limited','detail':'Too many requests','limit':limit})
     try:
         resp = await call_next(request)
+        if resp.status_code >= 500:
+            try: _errors_5xx_counter.inc()
+            except Exception: pass
         return resp
     except Exception as e:
         # fallback catch (should be handled by exception handler too)
+        try: _errors_5xx_counter.inc()
+        except Exception: pass
         return JSONResponse(status_code=500, content={'error':'internal_error','detail':str(e)[:300]})
 
 # --- Structured exception handler --- #
@@ -112,7 +143,9 @@ async def global_exception_handler(request: Request, exc: Exception):  # pragma:
         payload['code'] = ErrorCodes.POLICY
     return JSONResponse(status_code=500, content=payload)
 
-def api_key_guard(x_api_key: str | None = Header(default=None), required: str = 'write'):
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+def api_key_guard(x_api_key: str | None = Security(api_key_header), required: str = 'write'):
     # required: read|write|admin
     role = _resolve_role(x_api_key)
     hierarchy = {'public':0,'read':1,'write':2,'admin':3}
@@ -855,6 +888,12 @@ async def metrics_endpoint():
     except Exception as e:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"metrics_error: {e}")
 
+@app.get('/metrics/prometheus')
+async def metrics_prometheus():  # pragma: no cover
+    data = generate_latest()
+    from fastapi.responses import Response
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+
 # ---- Code Indexing Endpoints ---- #
 class IndexBuildResp(BaseModel):
     built: bool
@@ -1258,6 +1297,8 @@ async def proposals_pending():
             effort=getattr(sc,'effort',None),
             composite=getattr(sc,'composite',None) if sc else None
         ))
+    try: _pending_proposals_gauge.set(len(items))
+    except Exception: pass
     return PendingListResp(items=items, count=len(items))
 
 class PreviewResp(BaseModel):
@@ -1271,6 +1312,8 @@ async def proposal_preview(pid: str):
 
 class ApplyReq(BaseModel):
     id: str
+    expected_hash: str | None = None  # optional optimistic concurrency / idempotence guard (future)
+    mode: str | None = None  # optional override (pr|direct)
 
 class ApplyResp(BaseModel):
     applied: bool
@@ -1280,22 +1323,49 @@ class ApplyResp(BaseModel):
     mode: str | None = None
     artifact: str | None = None  # path to patch when mode=pr
 
-@app.post('/proposals/apply', response_model=ApplyResp, dependencies=[Depends(api_key_guard)])
+POLICY_DENY_PATTERNS = [
+    'migrations/', 'migrate', '.lock', 'package-lock.json', 'yarn.lock', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.zip', '.exe', '.dll', 'requirements.txt', 'Dockerfile'
+]
+
+def _policy_validate_diff(diff: str):
+    from ..core.diffing import extract_touched_files
+    touched = list(extract_touched_files(diff))
+    violations: list[str] = []
+    for f in touched:
+        low = f.lower()
+        for pat in POLICY_DENY_PATTERNS:
+            if pat.lower() in low:
+                violations.append(f)
+                break
+    if violations:
+        raise HTTPException(status_code=422, detail={"code":ErrorCodes.POLICY, "msg":"policy deny list", "files":violations})
+
+@app.post('/proposals/apply', response_model=ApplyResp, dependencies=[Depends(lambda: api_key_guard(required='write'))])
 async def proposal_apply(req: ApplyReq):
     import os as _os, subprocess as _sp, hashlib as _hh, datetime as _dt
-    mode = _os.getenv('PR_APPLY_MODE','direct').lower()  # direct | pr
+    # precedence: request override -> env -> default
+    mode_env = _os.getenv('PR_APPLY_MODE','pr').lower()
+    mode = (req.mode or mode_env or 'pr').lower()
     if mode not in ('direct','pr'):
         mode = 'direct'
     if mode == 'direct':
         try:
+            # preview for policy check first
+            diff_prev = orch.preview(req.id)
+            _policy_validate_diff(diff_prev)
             file_or_msg = orch.apply_after_approval(req.id, dry_run=False)
+            try: _apply_counter.labels(mode='direct').inc()  # type: ignore[attr-defined]
+            except Exception: pass
             return ApplyResp(applied=True, id=req.id, file=file_or_msg, mode=mode)
         except Exception as e:  # pragma: no cover
+            try: _apply_counter.labels(mode='direct').inc()  # type: ignore[attr-defined]
+            except Exception: pass
             return ApplyResp(applied=False, id=req.id, error=str(e)[:300], mode=mode)
     # --- PR Mode: erzeugt Patch Artefakt + optional Branch, wendet nicht direkt an --- #
     try:
         # Erst diff holen (preview) – gilt als finaler Patch in diesem Modus
         diff = orch.preview(req.id)
+        _policy_validate_diff(diff)
     except Exception as e:
         return ApplyResp(applied=False, id=req.id, error=f"preview fehlgeschlagen: {e}"[:300], mode=mode)
     # Patch Artefakt schreiben
@@ -1322,13 +1392,19 @@ async def proposal_apply(req: ApplyReq):
             if proc.returncode != 0:
                 # branch zurücksetzen falls apply fehlschlägt
                 _sp.run(['git','checkout','-'], cwd=repo_root, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+                try: _apply_counter.labels(mode='pr').inc()  # type: ignore[attr-defined]
+                except Exception: pass
                 return ApplyResp(applied=False, id=req.id, error='git apply failed: '+proc.stderr.decode(errors='ignore')[:200], mode=mode, artifact=str(patch_path))
             # commit
             _sp.run(['git','add','.'], cwd=repo_root, check=True, stdout=_sp.PIPE, stderr=_sp.PIPE)
             _sp.run(['git','commit','-m', f'apply proposal {req.id} (patch {sha})'], cwd=repo_root, check=True, stdout=_sp.PIPE, stderr=_sp.PIPE)
         except Exception as e:
+            try: _apply_counter.labels(mode='pr').inc()  # type: ignore[attr-defined]
+            except Exception: pass
             return ApplyResp(applied=False, id=req.id, error=('git flow error: '+str(e))[:280], mode=mode, artifact=str(patch_path))
     # Keine direkte Anwendung im Dateisystem durch orchestrator (dry-run) => applied=False semantisch? Wir signalisieren success via applied True aber ohne file.
+    try: _apply_counter.labels(mode='pr').inc()  # type: ignore[attr-defined]
+    except Exception: pass
     return ApplyResp(applied=True, id=req.id, file=None, mode=mode, artifact=str(patch_path))
 
 class UndoResp(BaseModel):
