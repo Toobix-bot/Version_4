@@ -758,17 +758,34 @@ class RootResp(BaseModel):
 # JSON API meta at /api
 @app.get("/api", response_model=RootResp)
 async def api_root():
-        return RootResp(
-                status="ok",
-                message="Evolution Sandbox API",
-                hint="POST /chat  JSON: { 'message': '/meta' }",
-                endpoints=[
-                        "POST /chat",
-                        "GET /chat/history",
-                        "GET /chat/stream?message=...",
-                        "POST /chat/to-proposal"
-                ]
-        )
+    eps = sorted({r.path for r in app.routes if getattr(r, 'path', None)})
+    return RootResp(
+        status="ok",
+        message="Evolution Sandbox API",
+        hint="Use /help or /meta (chat) | /world/state for world JSON",
+        endpoints=eps,
+    )
+
+# ---- World State Endpoint ---- #
+class WorldStateResp(BaseModel):
+    w: int
+    h: int
+    ticks: int
+    controlled: str | None
+    entities_total: int
+    entities: List[dict]
+
+@app.get('/world/state', response_model=WorldStateResp)
+async def world_state():
+    ents = sim_world.STATE.get('entities', [])
+    return WorldStateResp(
+        w=sim_world.STATE.get('w', 0),
+        h=sim_world.STATE.get('h', 0),
+        ticks=sim_world.STATE.get('ticks', 0),
+        controlled=sim_world.STATE.get('controlled'),
+        entities_total=len(ents),
+        entities=[e for e in ents[:100]],
+    )
 
 # Serve static assets if present
 static_dir = repo_root / 'static'
