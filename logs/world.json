@@ -1,18 +1,21 @@
 {
-  "w": 20,
-  "h": 12,
+  "w": 10,
+  "h": 6,
   "entities": [
     {
-      "id": "e354499",
+      "id": "e258708",
       "kind": "agent",
-      "x": 12,
-      "y": 8,
-      "energy": 0.98,
-      "exp": 0.01,
+      "x": 6,
+      "y": 3,
+      "energy": 0.8499999999999999,
+      "knowledge": 0.05,
+      "material": 0.0,
+      "exp": 0.075,
       "brain": "auto",
       "notes": []
     }
   ],
-  "ticks": 5,
-  "controlled": null
+  "ticks": 20,
+  "controlled": null,
+  "variant": "go"
 }

@@ -13,6 +13,8 @@ class Entity:
     x: int
     y: int
     energy: float = 1.0
+    knowledge: float = 0.0
+    material: float = 0.0
     exp: float = 0.0
     brain: str = "auto"  # auto|user
     notes: List[str] = None  # type: ignore
@@ -29,6 +31,7 @@ STATE: Dict[str, Any] = {
     'entities': [],  # list[dict]
     'ticks': 0,
     'controlled': None,  # entity id user controls
+    'variant': 'go',  # marker
 }
 
 _world_path: Optional[Path] = None
@@ -110,23 +113,29 @@ def tick(n: int = 1) -> str:
     n = max(1, min(200, int(n)))
     for _ in range(n):
         STATE['ticks'] += 1
-        # auto brains random wiggle
+        # 1. autonomous movement & passive gains
         for e in STATE['entities']:
-            if e.get('brain') == 'auto' and e.get('energy',0) > 0.05:
+            if e.get('brain') == 'auto' and e.get('energy', 0) > 0.05:
                 if random.random() < 0.6:
-                    e['x'] = max(0, min(STATE['w']-1, e['x'] + random.choice([-1,0,1])))
-                    e['y'] = max(0, min(STATE['h']-1, e['y'] + random.choice([-1,0,1])))
-                    e['energy'] = max(0.0, e.get('energy',1.0)-0.01)
-                    e['exp'] = e.get('exp',0.0)+0.005
-        # simple interaction: entities sharing a cell gain small exp + micro energy recovery
-        cell_map: Dict[tuple[int,int], int] = {}
+                    e['x'] = max(0, min(STATE['w'] - 1, e['x'] + random.choice([-1, 0, 1])))
+                    e['y'] = max(0, min(STATE['h'] - 1, e['y'] + random.choice([-1, 0, 1])))
+                    e['energy'] = max(0.0, e.get('energy', 1.0) - 0.01)
+                    e['exp'] = e.get('exp', 0.0) + 0.005
+                    if random.random() < 0.2:
+                        e['knowledge'] = min(10.0, e.get('knowledge', 0.0) + 0.01)
+                    if random.random() < 0.15:
+                        e['material'] = min(5.0, e.get('material', 0.0) + 0.005)
+        # 2. interaction bonuses for shared cells
+        cell_map: Dict[tuple[int, int], int] = {}
         for e in STATE['entities']:
             pos = (e['x'], e['y'])
-            cell_map[pos] = cell_map.get(pos,0)+1
+            cell_map[pos] = cell_map.get(pos, 0) + 1
         for e in STATE['entities']:
-            if cell_map.get((e['x'], e['y']),0) > 1:
-                e['exp'] = e.get('exp',0.0)+0.002
-                e['energy'] = min(1.0, e.get('energy',1.0)+0.003)
+            if cell_map.get((e['x'], e['y']), 0) > 1:
+                e['exp'] = e.get('exp', 0.0) + 0.002
+                e['energy'] = min(1.0, e.get('energy', 1.0) + 0.003)
+                e['knowledge'] = min(10.0, e.get('knowledge', 0.0) + 0.004)
+                e['material'] = min(5.0, e.get('material', 0.0) + 0.001)
     _save()
     return f"Tick {n} -> T={STATE['ticks']}"
 
@@ -135,10 +144,12 @@ def entities_summary(limit: int = 30) -> str:
     ents = STATE['entities'][:limit]
     if not ents:
         return '(leer)'
-    return ' '.join(f"{e['id']}:{e['kind']}@{e['x']},{e['y']} E={e.get('energy',0):.2f} X={e.get('exp',0):.2f}" for e in ents)
+    return ' '.join(
+        f"{e['id']}:{e['kind']}@{e['x']},{e['y']} E={e.get('energy',0):.2f} K={e.get('knowledge',0):.2f} M={e.get('material',0):.2f} X={e.get('exp',0):.2f}" 
+        for e in ents)
 
 
 def world_info() -> str:
     return (f"World {STATE['w']}x{STATE['h']} ticks={STATE['ticks']} ents={len(STATE['entities'])} "
-            f"ctrl={STATE.get('controlled') or '-'}")
+            f"ctrl={STATE.get('controlled') or '-'} variant={STATE.get('variant')}")
 

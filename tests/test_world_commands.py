@@ -1,7 +1,12 @@
-import json
+import os, json
 from fastapi.testclient import TestClient
-from src.api.app import app
 
+# disable rate limiting for this module BEFORE app import
+os.environ['RATE_LIMIT_PER_MIN'] = '0'
+os.environ['DISABLE_RATE_LIMIT'] = '1'
+from src.api import app as app_module  # type: ignore
+app_module.RATE_LIMIT_PER_MIN = 0  # type: ignore
+app = app_module.app
 client = TestClient(app)
 
 def chat(msg: str):

@@ -10,8 +10,10 @@ Returned suggestions are plain dict structures (id, title, rationale, diff_hint)
 Conversion into PatchProposal objects is handled by API endpoint /inject-proposal.
 """
 from pathlib import Path
-from typing import List, Dict, Any, Protocol, Tuple, TypedDict, cast
+from typing import List, Dict, Any, Protocol, Tuple, TypedDict, cast, Sequence
 import hashlib
+
+from .variant import VARIANT
 
 MAX_FILE_BYTES = 6000  # hard cap per file sample
 MAX_TOTAL_BYTES = 32000
@@ -26,6 +28,9 @@ def _hash(text: str) -> str:
 def collect_repo_sample(root: Path) -> List[Dict[str, Any]]:
     samples: List[Dict[str, Any]] = []
     budget = MAX_TOTAL_BYTES
+    file_count = 0
+    import time as _t
+    start = _t.time()
     for p in sorted(root.rglob('*')):
         if p.is_dir():
             if p.name in IGNORE:
@@ -35,6 +40,10 @@ def collect_repo_sample(root: Path) -> List[Dict[str, Any]]:
             continue
         if p.suffix not in ALLOW_SUFFIX:
             continue
+        if file_count >= VARIANT.analysis_max_files:
+            break
+        if (_t.time() - start) > VARIANT.analysis_max_seconds:
+            break
         rel = p.relative_to(root).as_posix()
         try:
             raw = p.read_text(encoding='utf-8', errors='ignore')
@@ -46,6 +55,7 @@ def collect_repo_sample(root: Path) -> List[Dict[str, Any]]:
             break
         budget -= size
         samples.append({"path": rel, "size": len(raw), "hash": _hash(raw), "snippet": head})
+        file_count += 1
         if budget <= 0:
             break
     return samples
@@ -69,8 +79,8 @@ Repository Samples:
 """.strip()
 
 
-def build_analysis_prompt(samples: List[Dict[str, Any]], objectives: List[str]) -> str:
-    sample_lines = []
+def build_analysis_prompt(samples: Sequence[Dict[str, Any]], objectives: Sequence[str]) -> str:
+    sample_lines: List[str] = []
     for s in samples[:25]:  # additional guard
         snippet = s['snippet'].replace('```', '`\u200b``')
         sample_lines.append(f"### {s['path']} (bytes={s['size']})\n{snippet}\n")
@@ -90,7 +100,7 @@ class SuggestionDict(TypedDict):
     risk: str
     diff_hint: str
 
-def analyze_repository(root: Path, objectives: List[str], client: ChatClientLike) -> List[SuggestionDict]:
+def analyze_repository(root: Path, objectives: Sequence[str], client: ChatClientLike) -> List[SuggestionDict]:
     from .models import Message
     samples = collect_repo_sample(root)
     prompt = build_analysis_prompt(samples, objectives)
@@ -98,6 +108,8 @@ def analyze_repository(root: Path, objectives: List[str], client: ChatClientLike
         Message(role='system', content='You produce ONLY JSON arrays.'),
         Message(role='user', content=prompt)
     ]
+    import time as _t
+    start = _t.time()
     raw = client.chat_completion(msgs)
     # naive JSON extraction
     import json, re

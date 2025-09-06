@@ -1,6 +1,21 @@
 ## Überblick
 Dieses Projekt ist ein autonomer Evolutions- und Refactoring-Assistent für ein Code-Repository. Er generiert Verbesserungsvorschläge (Proposals) mittels LLM, bewertet sie, erlaubt Sandbox-Experimente in einem Klon (Twin), verwaltet Snapshots, berücksichtigt definierte Ziele (Objectives) und bietet ein Chat-Interface zur interaktiven Steuerung.
 
+### Variante: go (Konfigurationsentscheidungen)
+Diese laufende Instanz folgt einer fokussierten Variante ("go") mit bewusst reduziertem Funktionsumfang für Klarheit & Testbarkeit:
+* Aktivierte Feature-Kategorien: System, Ziele, Analyse, World, Improve, Knowledge
+* Entfernte/Deaktivierte Kategorien (vorerst): Personas, Multi, Reflexion (außer memory.compress intern weiter verfügbar), User, Notebook, Energy, Self, Coach
+* Analyse-Limits: max. 3s Laufzeit / 100 Dateien Sampling-Grenze
+* Welt-Standardgröße: 40x24 ( `/world.init` ohne Argumente erzeugt 40x24 )
+* Ressourcenmodell (World Entities): energy, knowledge, material, exp
+* Autonomiegrenze KI: liefert nur Regel-VORSCHLÄGE (keine automatischen Regeländerungen)
+* Zielmetriken (Placeholder v1): a, b, c, d
+* Marker Modul: `src/core/variant.py` (zentraler Single-Source für VariantConfig)
+* Rate Limiting (einfach): `RATE_LIMIT_PER_MIN` (Default 120) – global + per-IP Soft-Limit
+* Strukturierte Fehler: globaler Exception-Handler liefert JSON `{error, detail, path}`
+
+Zweck: Schnell stabile Kern-Loops (Objectives → Analyze → Proposal → Apply) + einfache Simulation etablieren, bevor komplexe soziale / multi-agent Features wieder aktiviert werden.
+
 ## Inhaltsverzeichnis
 1. Überblick
 2. Schneller Überblick (Quickstart)
@@ -371,6 +386,25 @@ Aktuell keine produktiven Tests eingebracht. Vorgesehene Toolchain:
 * ruff – Linting
 * mypy – Typprüfung
 * black / isort – Format / Imports
+
+### Aktuelle Minimaltests (Variante go)
+Enthaltene Tests:
+* `tests/test_world_resources.py` – prüft Wachstum & Caps der Welt-Ressourcen
+* `tests/test_analysis_limits.py` – prüft Sampling-Limit (<=100 Dateien) & einfache Analyse-Rückgabe
+
+Ausführen (im aktivierten venv):
+```
+python -m pytest -q
+```
+Oder mit detaillierter Ausgabe:
+```
+python -m pytest -vv
+```
+
+Bei Importfehlern sicherstellen, dass Arbeitsverzeichnis Projektwurzel ist und `requirements.txt` installiert wurde:
+```
+pip install -r requirements.txt
+```
 
 Beispiel (zukünftig):
 ```

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from fastapi import FastAPI
-from fastapi import Depends, Header, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -12,13 +12,13 @@ from ..core.orchestrator import Orchestrator
 from ..io.groq_client import GroqClient
 from ..core.twin import TwinCoordinator, SnapshotManager
 from ..core.analysis import analyze_repository
-import time, asyncio
+import time, asyncio, threading
 try:
     from anyio import to_thread
 except Exception:  # fallback if anyio import pattern changes
     to_thread = None  # type: ignore
 
-app = FastAPI(title="Evolution Sandbox API", version="0.1.0")
+app = FastAPI(title="Evolution Sandbox API", version="0.1.1")
 # CORS for local dev / browser testing
 app.add_middleware(
     CORSMiddleware,
@@ -34,6 +34,52 @@ twin = TwinCoordinator(repo_root=repo_root)
 snaps = SnapshotManager(repo_root=repo_root)
 import os
 API_KEY_REQUIRED = os.environ.get('API_KEY') or ''
+RATE_LIMIT_PER_MIN = int(os.environ.get('RATE_LIMIT_PER_MIN', '120'))  # global simple limit
+
+# --- Simple in-memory rate limiter (global & per-IP) --- #
+_rl_lock = threading.Lock()
+_rl_window_start = time.time()
+_rl_global_count = 0
+_rl_ip_counts: Dict[str,int] = {}
+
+def _rate_limit_allow(ip: str) -> bool:
+    global _rl_window_start, _rl_global_count
+    now = time.time()
+    with _rl_lock:
+        if now - _rl_window_start >= 60.0:
+            _rl_window_start = now
+            _rl_global_count = 0
+            _rl_ip_counts.clear()
+        _rl_global_count += 1
+        _rl_ip_counts[ip] = _rl_ip_counts.get(ip,0)+1
+        if _rl_global_count > RATE_LIMIT_PER_MIN:
+            return False
+        if _rl_ip_counts[ip] > max(10, RATE_LIMIT_PER_MIN//4):
+            return False
+        return True
+
+@app.middleware('http')
+async def rate_limit_middleware(request: Request, call_next):  # pragma: no cover (best effort)
+    ip = request.client.host if request.client else 'unknown'
+    # read current value dynamically (tests may patch RATE_LIMIT_PER_MIN)
+    limit = globals().get('RATE_LIMIT_PER_MIN', 0)
+    import os as _os
+    if _os.getenv('DISABLE_RATE_LIMIT') == '1':
+        limit = 0
+    if isinstance(limit, int) and limit > 0:
+        if not _rate_limit_allow(ip):
+            return JSONResponse(status_code=429, content={'error':'rate_limited','detail':'Too many requests','limit':limit})
+    try:
+        resp = await call_next(request)
+        return resp
+    except Exception as e:
+        # fallback catch (should be handled by exception handler too)
+        return JSONResponse(status_code=500, content={'error':'internal_error','detail':str(e)[:300]})
+
+# --- Structured exception handler --- #
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):  # pragma: no cover
+    return JSONResponse(status_code=500, content={'error':'exception','detail':str(exc)[:300],'path':str(request.url.path)})
 
 def api_key_guard(x_api_key: str | None = Header(default=None)):
     if not API_KEY_REQUIRED:
@@ -64,18 +110,10 @@ COMMAND_CATEGORIES: Dict[str, List[tuple[str,str]]] = {
         ('meta','Status'),('cycle','Dry Run Zyklus'),('pending','Liste Pending'),('apply','Apply Proposal'),
         ('diff','Diff Vorschau'),('undo','Undo letzter Apply'),('twin.changed','Sandbox Änderungen'),('snapshot.list','Snapshots')],
     'Ziele': [('objectives.list','Ziele zeigen'),('objectives.set','Ziele setzen')],
-    'Personas': [('personas.list','Alle & aktive'),('personas.set','Aktive setzen'),('personas.add','Neue Persona'),('personas.grow','Synthese'),('personas.save','Speichern'),('personas.load','Laden')],
-    'Multi': [('multi','Mehrperspektive'),('multi.consensus','Konsens'),('multi.conflicts','Konflikte'),('multi.vote','Voting')],
-    'Reflexion': [('reflect','Reflexion'),('reflect.conflicts','Konflikt-Reflex'),('reflections.list','Liste'),('reflections.evaluate','Bewerten'),('memory.compress','Verlauf komprimieren')],
     'Knowledge': [('kb.save','Speichern'),('kb.list','Auflisten'),('kb.search','Suchen'),('kb.get','Zeigen'),('kb.inject','In Chat injizieren')],
-    'User': [('me.show','User-Modell'),('me.set','Setzen'),('me.addinterest','Interessen +'),('suggest','Themen Vorschläge')],
-    'Notebook': [('nb.new','Neu'),('nb.list','Liste'),('nb.show','Zeigen'),('nb.add','Zelle hinzufügen'),('nb.tag','Tags'),('nb.save','Persist')],
-    'Energy': [('energy.show','Status'),('energy.tick','Tick')],
-    'Self': [('self.tick','Selbst-Tick'),('self.show','Self anzeigen')],
-    'Coach': [('coach.on','Auto an'),('coach.off','Auto aus')],
-    'Analyse': [('analyze','Repo Analyse'),('analysis.last','Letzte Analyse')]
-    , 'World': [('world.init','Welt init'),('world.spawn','Spawn'),('world.tick','Ticks'),('world.ents','Entities'),('world.ctrl','Control'),('world.move','Bewegen'),('world.info','Info')]
-    , 'Improve': [('improve.scan','Heuristik Scan')]
+    'Analyse': [('analyze','Repo Analyse'),('analysis.last','Letzte Analyse')],
+    'World': [('world.init','Welt init'),('world.spawn','Spawn'),('world.tick','Ticks'),('world.ents','Entities'),('world.ctrl','Control'),('world.move','Bewegen'),('world.info','Info')],
+    'Improve': [('improve.scan','Heuristik Scan')]
 }
 from ..sim import world as sim_world
 
@@ -432,7 +470,8 @@ def _legacy_logic(cmd: str, arg: str) -> str | None:  # trimmed set
         if cmd == 'analyze':
             start = time.time()
             try:
-                suggestions = analyze_repository(repo_root, orch.state.objectives, gclient)
+                # result: List[SuggestionDict]; treat as list[dict[str,Any]] for normalization
+                suggestions: List[Any] = analyze_repository(repo_root, orch.state.objectives, gclient)  # type: ignore
             except Exception:
                 suggestions = []
             global _last_analysis
@@ -454,7 +493,8 @@ def _legacy_logic(cmd: str, arg: str) -> str | None:  # trimmed set
                     continue
             _last_analysis = norm
             took = (time.time()-start)*1000
-            if not norm: return f"Analyse leer ({took:.0f}ms)."
+            if not norm:
+                return f"Analyse leer ({took:.0f}ms)."
             return f"Analyse {len(norm)} Vorschläge ({took:.0f}ms): " + ', '.join(f"{d['id']}:{d['title'][:18]}" for d in norm[:6])
         if cmd == 'analysis.last':
             if not _last_analysis: return 'Noch keine Analyse.'
@@ -480,6 +520,8 @@ def _legacy_logic(cmd: str, arg: str) -> str | None:  # trimmed set
         # --- World commands ---
         if cmd == 'world.init':
             parts = [p for p in arg.split() if p.strip()]
+            if not parts:
+                return sim_world.init_world(40,24)
             if len(parts)!=2: return 'Nutze: /world.init <w> <h>'
             try:
                 w = int(parts[0]); h = int(parts[1])
@@ -696,10 +738,13 @@ class HealthResp(BaseModel):
     cycle: int
     objectives: int
     pending: int
+    variant: str
+    rate_limit: int
 
 @app.get('/health', response_model=HealthResp)
 async def health():
-    return HealthResp(status='ok', cycle=orch.state.cycle, objectives=len(orch.state.objectives), pending=len(orch.list_pending()))
+    from ..core.variant import VARIANT as _V
+    return HealthResp(status='ok', cycle=orch.state.cycle, objectives=len(orch.state.objectives), pending=len(orch.list_pending()), variant='go', rate_limit=RATE_LIMIT_PER_MIN)
 
 @app.get('/chat')
 class ChatGetUsage(BaseModel):
